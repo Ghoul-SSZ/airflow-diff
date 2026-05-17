@@ -1,0 +1,21 @@
+Metadata-Version: 2.4
+Name: airflow-diff
+Version: 0.1.0
+Summary: Render and diff Apache Airflow DAGs across two git commits
+License: Apache-2.0
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: pydantic>=2.5
+Requires-Dist: PyYAML>=6.0
+Requires-Dist: tomli>=2.0; python_version < "3.11"
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4; extra == "dev"
+Requires-Dist: pytest-cov>=4.1; extra == "dev"
+Requires-Dist: syrupy>=4.6; extra == "dev"
+Requires-Dist: apache-airflow==2.10.3; extra == "dev"
+
+# airflow-diff
+
+Render and diff Apache Airflow 2.x DAGs across two git commits.
+
+Status: under development. See `docs/superpowers/specs/2026-05-17-airflow-diff-design.md`.

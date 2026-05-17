@@ -1,0 +1,11 @@
+pydantic>=2.5
+PyYAML>=6.0
+
+[:python_version < "3.11"]
+tomli>=2.0
+
+[dev]
+pytest>=7.4
+pytest-cov>=4.1
+syrupy>=4.6
+apache-airflow==2.10.3
