@@ -1,2 +1,0 @@
-[console_scripts]
-airflow-diff = airflow_diff.cli:main
