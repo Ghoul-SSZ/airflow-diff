@@ -6,9 +6,9 @@ types. The schema is versioned; bump SCHEMA_VERSION when changing wire shape.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA_VERSION = 1
 
@@ -69,12 +69,28 @@ class RenderedDag(_Model):
     # Present only when status == "error":
     error: Optional[RenderError] = None
 
+    @model_validator(mode="after")
+    def _check_status_field_invariant(self) -> "RenderedDag":
+        if self.status == "ok" and self.error is not None:
+            raise ValueError(
+                "RenderedDag with status='ok' must not have an error field set"
+            )
+        if self.status == "error" and any(
+            field is not None
+            for field in (self.attrs, self.datasets, self.task_groups, self.tasks)
+        ):
+            raise ValueError(
+                "RenderedDag with status='error' must not have attrs, datasets, "
+                "task_groups, or tasks populated"
+            )
+        return self
+
 
 class RenderedDagBag(_Model):
     schema_version: Literal[1]
     commit_sha: str
     airflow_version: str
-    rendered_at: datetime
+    rendered_at: AwareDatetime
     dags: list[RenderedDag]
 
 
