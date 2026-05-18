@@ -15,7 +15,7 @@ import importlib.util
 import json
 import sys
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -133,11 +133,46 @@ class _StubTI:
         return f"<XCOM:{ids}.{key}>"
 
 
+def _extract_external_ref(task) -> "ExternalTaskRef | None":
+    """Capture cross-DAG metadata for any task whose MRO contains ExternalTaskSensor.
+
+    Uses class-name MRO walk rather than isinstance to avoid hard-importing
+    airflow.sensors.external_task (defensive, matches _extract_dataset_uris style).
+    """
+    from datetime import timedelta as _td
+    from airflow_diff.schema import ExternalTaskRef
+
+    if not any(c.__name__ == "ExternalTaskSensor" for c in type(task).__mro__):
+        return None
+
+    delta = getattr(task, "execution_delta", None)
+    delta_seconds = int(delta.total_seconds()) if isinstance(delta, _td) else None
+
+    external_task_id = getattr(task, "external_task_id", None)
+    # Airflow 2.10 may mirror external_task_id into external_task_ids; only set
+    # external_task_ids when external_task_id is absent to satisfy the schema's
+    # single-target invariant.
+    if external_task_id is not None:
+        external_task_ids = None
+    else:
+        external_task_ids = list(getattr(task, "external_task_ids", []) or []) or None
+
+    return ExternalTaskRef(
+        kind="external_task_sensor",
+        external_dag_id=getattr(task, "external_dag_id", "") or "",
+        external_task_id=external_task_id,
+        external_task_ids=external_task_ids,
+        external_task_group_id=getattr(task, "external_task_group_id", None),
+        execution_delta_seconds=delta_seconds,
+        execution_date_fn_present=callable(getattr(task, "execution_date_fn", None)),
+    )
+
+
 def _render_dag(dag, synthetic_logical_date: str) -> "RenderedDag":
     """Walk a DAG, render templates per task, return a RenderedDag."""
     from airflow_diff.schema import (
         RenderedDag, RenderedTask, RenderedField, ProvenanceEntry,
-        DatasetRefs, TaskGroupInfo,
+        DatasetRefs, TaskGroupInfo, ExternalTaskRef,
     )
 
     tasks_out: list[RenderedTask] = []
@@ -169,6 +204,10 @@ def _render_dag(dag, synthetic_logical_date: str) -> "RenderedDag":
                 )
 
         tg_id = task.task_group.group_id if (task.task_group and task.task_group.group_id) else None
+        try:
+            external_ref = _extract_external_ref(task)
+        except Exception:
+            external_ref = None  # per-task isolation matches existing policy
         tasks_out.append(RenderedTask(
             task_id=task.task_id,
             operator=f"{type(task).__module__}.{type(task).__name__}",
@@ -176,6 +215,7 @@ def _render_dag(dag, synthetic_logical_date: str) -> "RenderedDag":
             upstream=sorted(t.task_id for t in task.upstream_list),
             downstream=sorted(t.task_id for t in task.downstream_list),
             fields=fields,
+            external_ref=external_ref,
         ))
 
     attrs = {
