@@ -3,12 +3,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from airflow_diff import cli
-from airflow_diff.schema import DiffDocument, DiffSummary
+from airflow_diff.schema import DiffDocument, DiffSummary, SCHEMA_VERSION
 
 
 def _empty_diff():
     return DiffDocument(
-        schema_version=1, base_sha="aaa", head_sha="bbb",
+        schema_version=SCHEMA_VERSION, base_sha="aaa", head_sha="bbb",
         summary=DiffSummary(), dags=[], render_errors=[],
     )
 
@@ -35,7 +35,7 @@ def test_cli_exit_code_for_regression(monkeypatch, tmp_path, capsys):
     from airflow_diff.schema import DagDiff
     def fake_run_diff(repo, a, b, config):
         return DiffDocument(
-            schema_version=1, base_sha="aaa", head_sha="bbb",
+            schema_version=SCHEMA_VERSION, base_sha="aaa", head_sha="bbb",
             summary=DiffSummary(dags_regressed=1),
             dags=[DagDiff(dag_id="x", classification="touched", pair_status="regressed")],
             render_errors=[],

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "base_sha": "abc1234",
   "head_sha": "def5678",
   "summary": {"dags_touched": 1, "dags_incidentally_affected": 0, "dags_added": 0, "dags_removed": 0, "dags_regressed": 0, "dags_fixed": 0},
@@ -42,5 +42,6 @@
       ]
     }
   ],
-  "render_errors": []
+  "render_errors": [],
+  "sensor_mismatches": []
 }

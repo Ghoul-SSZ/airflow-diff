@@ -10,7 +10,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class _Model(BaseModel):
@@ -29,6 +29,31 @@ class RenderedField(_Model):
     provenance: list[ProvenanceEntry] = Field(default_factory=list)
 
 
+class ExternalTaskRef(_Model):
+    """Cross-DAG metadata captured from an ExternalTaskSensor instance."""
+    kind: Literal["external_task_sensor"]
+    external_dag_id: str
+    external_task_id: Optional[str] = None
+    external_task_ids: Optional[list[str]] = None
+    external_task_group_id: Optional[str] = None
+    execution_delta_seconds: Optional[int] = None
+    execution_date_fn_present: bool = False
+
+    @model_validator(mode="after")
+    def _check_single_target(self) -> "ExternalTaskRef":
+        set_fields = sum([
+            self.external_task_id is not None,
+            self.external_task_ids is not None,
+            self.external_task_group_id is not None,
+        ])
+        if set_fields > 1:
+            raise ValueError(
+                "At most one of external_task_id, external_task_ids, "
+                "external_task_group_id may be set"
+            )
+        return self
+
+
 DagStatus = Literal["ok", "error"]
 
 
@@ -45,6 +70,7 @@ class RenderedTask(_Model):
     upstream: list[str] = Field(default_factory=list)
     downstream: list[str] = Field(default_factory=list)
     fields: dict[str, RenderedField] = Field(default_factory=dict)
+    external_ref: Optional[ExternalTaskRef] = None
 
 
 class TaskGroupInfo(_Model):
@@ -87,7 +113,7 @@ class RenderedDag(_Model):
 
 
 class RenderedDagBag(_Model):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     commit_sha: str
     airflow_version: str
     rendered_at: AwareDatetime
@@ -164,10 +190,39 @@ class RenderErrorEntry(_Model):
     error_head: Optional[RenderError] = None
 
 
+class SensorMismatch(_Model):
+    sensor_dag_id: str
+    sensor_task_id: str
+    target_dag_id: str
+    target_task_id: Optional[str] = None
+    target_task_ids: Optional[list[str]] = None
+    reason: Literal[
+        "missing_execution_delta",
+        "incorrect_execution_delta",
+        "dangling_target",
+    ]
+    sensor_schedule: Optional[str] = None
+    target_schedule: Optional[str] = None
+    expected_delta_seconds: Optional[int] = None
+    actual_delta_seconds: Optional[int] = None
+    notes: Optional[str] = Field(None, max_length=500)
+
+    @model_validator(mode="after")
+    def _check_reason_field_invariant(self) -> "SensorMismatch":
+        if self.reason == "incorrect_execution_delta":
+            if self.expected_delta_seconds is None or self.actual_delta_seconds is None:
+                raise ValueError(
+                    "SensorMismatch with reason='incorrect_execution_delta' must "
+                    "have expected_delta_seconds and actual_delta_seconds set"
+                )
+        return self
+
+
 class DiffDocument(_Model):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     base_sha: str
     head_sha: str
     summary: DiffSummary
     dags: list[DagDiff]
     render_errors: list[RenderErrorEntry] = Field(default_factory=list)
+    sensor_mismatches: list[SensorMismatch] = Field(default_factory=list)

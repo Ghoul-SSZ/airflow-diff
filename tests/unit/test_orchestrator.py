@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from airflow_diff.schema import DiffDocument, RenderedDagBag
+from airflow_diff.schema import DiffDocument, RenderedDagBag, SCHEMA_VERSION
 
 
 def test_orchestrator_invokes_renderer_per_commit_and_diffs(tmp_path, monkeypatch):
@@ -10,11 +10,11 @@ def test_orchestrator_invokes_renderer_per_commit_and_diffs(tmp_path, monkeypatc
     from airflow_diff.config import Config
 
     base_bag_json = RenderedDagBag(
-        schema_version=1, commit_sha="aaa", airflow_version="2.10.3",
+        schema_version=SCHEMA_VERSION, commit_sha="aaa", airflow_version="2.10.3",
         rendered_at=datetime(2026, 5, 17, tzinfo=timezone.utc), dags=[],
     ).model_dump_json()
     head_bag_json = RenderedDagBag(
-        schema_version=1, commit_sha="bbb", airflow_version="2.10.3",
+        schema_version=SCHEMA_VERSION, commit_sha="bbb", airflow_version="2.10.3",
         rendered_at=datetime(2026, 5, 17, tzinfo=timezone.utc), dags=[],
     ).model_dump_json()
 
