@@ -54,7 +54,7 @@ def _cmd_diff(args) -> int:
     _emit(diff, args.format, args.out, config=config)
     if args.json_out:
         Path(args.json_out).write_text(diff.model_dump_json(indent=2))
-    return _exit_code(diff)
+    return _exit_code(diff, config)
 
 
 def _cmd_report(args) -> int:
@@ -109,7 +109,7 @@ def _emit(diff: DiffDocument, fmt: str, out_path: str | None, config=None) -> No
         sys.stdout.write(text)
 
 
-def _exit_code(diff: DiffDocument) -> int:
+def _exit_code(diff: DiffDocument, config) -> int:
     """Non-zero only when the PR introduced a regression (per spec section 7)."""
     if diff.summary.dags_regressed > 0:
         return 1
@@ -117,6 +117,8 @@ def _exit_code(diff: DiffDocument) -> int:
     for d in diff.dags:
         if d.classification == "added" and d.status_b == "error":
             return 1
+    if config.fail_on_sensor_mismatch and diff.sensor_mismatches:
+        return 1
     return 0
 
 
