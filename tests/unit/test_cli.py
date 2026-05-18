@@ -81,3 +81,52 @@ def test_cli_exit_one_when_fail_on_sensor_mismatch(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "load_config", lambda repo: Config(fail_on_sensor_mismatch=True))
     rc = cli.main(["diff", "a", "b", "--repo", str(tmp_path)])
     assert rc == 1
+
+
+def test_cli_exit_two_on_worktree_error(monkeypatch, tmp_path, capsys):
+    from airflow_diff.worktree import WorktreeError
+    def fake_run_diff(repo, a, b, config):
+        raise WorktreeError("could not resolve ref 'bogus': fatal: ...")
+    monkeypatch.setattr(cli, "run_diff", fake_run_diff)
+    rc = cli.main(["diff", "bogus", "bbb", "--repo", str(tmp_path)])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "could not resolve ref" in err
+    assert "Traceback" not in err  # clean error, not a stack trace
+
+
+def test_cli_exit_two_on_venv_error(monkeypatch, tmp_path, capsys):
+    from airflow_diff.venv import VenvError
+    def fake_run_diff(repo, a, b, config):
+        raise VenvError("uv pip install failed: ResolutionImpossible")
+    monkeypatch.setattr(cli, "run_diff", fake_run_diff)
+    rc = cli.main(["diff", "a", "b", "--repo", str(tmp_path)])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "uv pip install failed" in err
+    assert "Traceback" not in err
+
+
+def test_cli_exit_three_on_orchestrator_error(monkeypatch, tmp_path, capsys):
+    from airflow_diff.orchestrator import OrchestratorError
+    def fake_run_diff(repo, a, b, config):
+        raise OrchestratorError(
+            "renderer subprocess failed (exit 1) for sha abc:\nstderr (last 2000 chars): ImportError: ..."
+        )
+    monkeypatch.setattr(cli, "run_diff", fake_run_diff)
+    rc = cli.main(["diff", "a", "b", "--repo", str(tmp_path)])
+    assert rc == 3
+    err = capsys.readouterr().err
+    assert "renderer subprocess failed" in err
+    assert "Traceback" not in err
+
+
+def test_cli_exit_unknown_exception_still_propagates(monkeypatch, tmp_path):
+    """Surprises should NOT be swallowed — let unexpected exceptions surface
+    with a real traceback so bugs are noisy."""
+    def fake_run_diff(repo, a, b, config):
+        raise RuntimeError("something we didn't anticipate")
+    monkeypatch.setattr(cli, "run_diff", fake_run_diff)
+    import pytest
+    with pytest.raises(RuntimeError, match="something we didn't anticipate"):
+        cli.main(["diff", "a", "b", "--repo", str(tmp_path)])

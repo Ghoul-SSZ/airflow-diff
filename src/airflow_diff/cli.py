@@ -6,9 +6,11 @@ import sys
 from pathlib import Path
 
 from airflow_diff.config import load_config
-from airflow_diff.orchestrator import run_diff
+from airflow_diff.orchestrator import OrchestratorError, run_diff
 from airflow_diff.present.markdown import render_markdown
 from airflow_diff.schema import DiffDocument
+from airflow_diff.venv import VenvError
+from airflow_diff.worktree import WorktreeError
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -50,7 +52,18 @@ def main(argv: list[str] | None = None) -> int:
 def _cmd_diff(args) -> int:
     repo = Path(args.repo).resolve()
     config = load_config(repo)
-    diff = run_diff(repo, args.base_ref, args.head_ref, config)
+    try:
+        diff = run_diff(repo, args.base_ref, args.head_ref, config)
+    except (WorktreeError, VenvError) as e:
+        # Orchestration errors: bad ref, shallow clone, dep install failure.
+        # Per spec §7: exit 2, clean error to stderr (no traceback).
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    except OrchestratorError as e:
+        # Renderer subprocess failures: crash, invalid JSON, timeout.
+        # Per spec §7: exit 3, clean error to stderr (no traceback).
+        print(f"error: {e}", file=sys.stderr)
+        return 3
     _emit(diff, args.format, args.out, config=config)
     if args.json_out:
         Path(args.json_out).write_text(diff.model_dump_json(indent=2))
