@@ -110,4 +110,19 @@ def _evaluate_sensor(
                 reason="dangling_target",
                 notes=f"missing target task ids: {', '.join(missing)}",
             )
-    return None  # subsequent rules added in later tasks
+
+    # Step 2: schedule equality
+    sensor_schedule = (sensor_dag.attrs or {}).get("schedule")
+    target_schedule = (target_dag.attrs or {}).get("schedule")
+    sensor_norm = _normalize_schedule(sensor_schedule)
+    target_norm = _normalize_schedule(target_schedule)
+    if sensor_norm is not None and target_norm is not None and sensor_norm == target_norm:
+        return None
+    if sensor_norm is None and target_norm is None and sensor_schedule == target_schedule:
+        return None
+
+    # Step 3: execution_date_fn short-circuit (treat as user-managed)
+    if ref.execution_date_fn_present:
+        return None
+
+    return None  # remaining rules added in later tasks

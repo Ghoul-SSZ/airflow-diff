@@ -161,3 +161,55 @@ def test_dangling_target_one_of_task_ids_missing():
     assert m.reason == "dangling_target"
     assert m.target_task_ids == ["finalize", "missing"]
     assert "missing" in (m.notes or "")
+
+
+# ===== schedule-equality + execution_date_fn tests (Task 7) =====
+
+def test_schedules_equal_no_mismatch():
+    sensor_dag = _ok_dag("d", schedule="@daily", tasks=[
+        _sensor_task("wait", external_dag_id="u", external_task_id="x"),
+    ])
+    upstream = _ok_dag("u", schedule="@daily", tasks=[
+        RenderedTask(task_id="x", operator="x.Op", task_group=None,
+                     upstream=[], downstream=[], fields={}),
+    ])
+    assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []
+
+
+def test_schedules_equal_after_normalization():
+    # "@midnight" normalizes to "0 0 * * *", same as "@daily"
+    sensor_dag = _ok_dag("d", schedule="@midnight", tasks=[
+        _sensor_task("wait", external_dag_id="u", external_task_id="x"),
+    ])
+    upstream = _ok_dag("u", schedule="@daily", tasks=[
+        RenderedTask(task_id="x", operator="x.Op", task_group=None,
+                     upstream=[], downstream=[], fields={}),
+    ])
+    assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []
+
+
+def test_schedules_differ_with_execution_date_fn_no_mismatch():
+    sensor_dag = _ok_dag("d", schedule="@hourly", tasks=[
+        _sensor_task("wait", external_dag_id="u", external_task_id="x",
+                     execution_date_fn_present=True),
+    ])
+    upstream = _ok_dag("u", schedule="@daily", tasks=[
+        RenderedTask(task_id="x", operator="x.Op", task_group=None,
+                     upstream=[], downstream=[], fields={}),
+    ])
+    assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []
+
+
+def test_schedules_differ_missing_bridge_placeholder():
+    """Without delta or fn the validator must emit. This test will be unblocked
+    once Task 8 lands the missing-bridge rule; for now it asserts the current
+    pre-rule behavior to make the regression visible."""
+    sensor_dag = _ok_dag("d", schedule="@hourly", tasks=[
+        _sensor_task("wait", external_dag_id="u", external_task_id="x"),
+    ])
+    upstream = _ok_dag("u", schedule="@daily", tasks=[
+        RenderedTask(task_id="x", operator="x.Op", task_group=None,
+                     upstream=[], downstream=[], fields={}),
+    ])
+    # Pre-Task-8 behavior: no rule yet → no emission. Task 8 changes this to 1.
+    assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []
