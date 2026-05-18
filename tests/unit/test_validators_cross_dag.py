@@ -200,16 +200,30 @@ def test_schedules_differ_with_execution_date_fn_no_mismatch():
     assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []
 
 
-def test_schedules_differ_missing_bridge_placeholder():
-    """Without delta or fn the validator must emit. This test will be unblocked
-    once Task 8 lands the missing-bridge rule; for now it asserts the current
-    pre-rule behavior to make the regression visible."""
-    sensor_dag = _ok_dag("d", schedule="@hourly", tasks=[
-        _sensor_task("wait", external_dag_id="u", external_task_id="x"),
+def test_schedules_differ_no_bridge_emits_missing():
+    sensor_dag = _ok_dag("downstream", schedule="@hourly", tasks=[
+        _sensor_task("wait", external_dag_id="upstream", external_task_id="x"),
     ])
-    upstream = _ok_dag("u", schedule="@daily", tasks=[
+    upstream = _ok_dag("upstream", schedule="@daily", tasks=[
         RenderedTask(task_id="x", operator="x.Op", task_group=None,
                      upstream=[], downstream=[], fields={}),
     ])
-    # Pre-Task-8 behavior: no rule yet → no emission. Task 8 changes this to 1.
-    assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []
+    [m] = _mismatches_for_bag(_bag(sensor_dag, upstream), Config())
+    assert m.reason == "missing_execution_delta"
+    assert m.sensor_schedule == "@hourly"
+    assert m.target_schedule == "@daily"
+    assert m.notes is None  # both schedules cron-parseable; no opacity note
+
+
+def test_opaque_target_no_bridge_emits_missing_with_note():
+    sensor_dag = _ok_dag("downstream", schedule="@hourly", tasks=[
+        _sensor_task("wait", external_dag_id="upstream", external_task_id="x"),
+    ])
+    # Opaque schedule (dataset list serialized as JSON list, or any non-cron string)
+    upstream = _ok_dag("upstream", schedule="@once", tasks=[
+        RenderedTask(task_id="x", operator="x.Op", task_group=None,
+                     upstream=[], downstream=[], fields={}),
+    ])
+    [m] = _mismatches_for_bag(_bag(sensor_dag, upstream), Config())
+    assert m.reason == "missing_execution_delta"
+    assert "opaque" in (m.notes or "").lower()

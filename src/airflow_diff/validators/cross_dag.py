@@ -125,4 +125,29 @@ def _evaluate_sensor(
     if ref.execution_date_fn_present:
         return None
 
-    return None  # remaining rules added in later tasks
+    def _str(s: Any) -> Optional[str]:
+        if s is None:
+            return None
+        return s if isinstance(s, str) else repr(s)
+
+    # Step 4: missing bridge
+    if ref.execution_delta_seconds is None:
+        notes = None
+        if target_norm is None:
+            notes = (
+                "target schedule is opaque; cannot suggest a specific "
+                "execution_delta value"
+            )
+        return SensorMismatch(
+            sensor_dag_id=sensor_dag.dag_id,
+            sensor_task_id=sensor_task.task_id,
+            target_dag_id=target_dag.dag_id,
+            target_task_id=ref.external_task_id,
+            target_task_ids=ref.external_task_ids,
+            reason="missing_execution_delta",
+            sensor_schedule=_str(sensor_schedule),
+            target_schedule=_str(target_schedule),
+            notes=notes,
+        )
+
+    return None  # delta-math rule added next
