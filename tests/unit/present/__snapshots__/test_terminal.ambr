@@ -1,0 +1,24 @@
+# serializer version: 1
+# name: test_empty
+  '''
+  [1mairflow-diff:[0m no DAG differences detected.
+  
+  '''
+# ---
+# name: test_single_dag
+  '''
+  [1mairflow-diff: 1 DAG(s) changed[0m
+    base: abc1234  head: def5678
+  
+  [1mmy_dag[0m (touched)
+    [33m~ task extract_data[0m
+        bash_command:
+          [31m- aws s3 cp s3://<VAR:bucket>/2025-01-01 /tmp/in[0m
+          [32m+ aws s3 cp s3://<VAR:bucket_v2>/2025-01-01 /tmp/in[0m
+        [31m- downstream edge: extract_data -> transform[0m
+        [32m+ downstream edge: extract_data -> validate_data[0m
+    [32m+ task validate_data[0m
+  
+  
+  '''
+# ---
