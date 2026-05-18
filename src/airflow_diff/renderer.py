@@ -13,12 +13,29 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import importlib.util
+import inspect
 import json
 import sys
 import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+# Names that should never appear in the rendered literal-kwargs set, either
+# because they're captured at a higher level (DAG/datasets), are purely
+# cosmetic, or are documentation strings that bloat diffs without adding
+# behavioral signal.
+_LITERAL_BLOCKLIST = frozenset({
+    # Structural — captured at DAG/task-group/dataset level, not here:
+    "dag", "task_group", "task_id", "inlets", "outlets",
+    "params", "default_args", "subdag",
+    # Cosmetic:
+    "ui_color", "ui_fgcolor",
+    # Documentation (noisy, not behavioral):
+    "doc", "doc_md", "doc_json", "doc_yaml", "doc_rst",
+    # User identity (changes per-task usage but not behavior):
+    "owner",
+})
 
 # Stubs MUST be installed before any DAG import. We patch Airflow's Variable,
 # BaseHook, and TaskInstance.xcom_pull at module level.
@@ -134,6 +151,70 @@ class _StubTI:
         return f"<XCOM:{ids}.{key}>"
 
 
+def _extract_literal_kwargs(task, template_fields: frozenset) -> dict[str, Any]:
+    """Capture non-template operator kwargs the user set to non-default values.
+
+    Walks the operator class's MRO and inspects each level's `__init__` signature
+    to discover every named parameter. For each, the corresponding attribute on
+    the task instance is captured iff:
+
+      * the name is not in `template_fields` (already rendered via Jinja),
+      * the name is not in `_LITERAL_BLOCKLIST` (structural/cosmetic/doc),
+      * the value is not None,
+      * the value is not callable (callbacks can't be diffed),
+      * the value does not equal the parameter's declared default (per the
+        signature; user didn't override it).
+
+    Returns a dict mapping name → JSON-safe value (via `_jsonify`).
+    """
+    params: dict[str, inspect.Parameter] = {}
+    for cls in type(task).__mro__:
+        try:
+            sig = inspect.signature(cls.__init__)
+        except (ValueError, TypeError):
+            continue
+        for name, param in sig.parameters.items():
+            if name == "self":
+                continue
+            if param.kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ):
+                continue
+            # More-derived class wins (we iterate MRO from most-derived).
+            params.setdefault(name, param)
+
+    out: dict[str, Any] = {}
+    for name, param in params.items():
+        if name in template_fields:
+            continue
+        if name in _LITERAL_BLOCKLIST:
+            continue
+        try:
+            value = getattr(task, name)
+        except AttributeError:
+            continue
+        if value is None:
+            continue
+        # Skip anything _jsonify can't handle without falling through to repr().
+        # repr() of arbitrary objects embeds memory addresses, which produce
+        # spurious diffs across renderer runs (e.g., weight_rule strategy
+        # instances render as "<...object at 0x7f...>"). This also catches
+        # callables (functions, lambdas, methods, partials).
+        if not isinstance(value, (str, int, float, bool, list, tuple, dict, set, frozenset, datetime, timedelta)):
+            continue
+        if param.default is not inspect.Parameter.empty:
+            try:
+                if value == param.default:
+                    continue
+            except Exception:
+                # Some objects don't support __eq__ safely; fall through and
+                # capture the value rather than crashing.
+                pass
+        out[name] = _jsonify(value)
+    return out
+
+
 def _extract_external_ref(task) -> "ExternalTaskRef | None":
     """Capture cross-DAG metadata for any task whose MRO contains ExternalTaskSensor.
 
@@ -195,12 +276,18 @@ def _render_dag(dag, synthetic_logical_date: str) -> "RenderedDag":
                 continue
             prov = _classify_provenance(rendered)
             fields[fname] = RenderedField(rendered=_jsonify(rendered), provenance=prov)
-        # Also capture a couple of non-template literals that matter for diffs:
-        for literal_name in ("retries", "retry_delay", "pool", "queue", "trigger_rule"):
-            val = getattr(task, literal_name, None)
-            if val is not None and literal_name not in fields:
-                fields[literal_name] = RenderedField(
-                    rendered=_jsonify(val),
+        # Capture non-template operator kwargs the user set to non-default
+        # values, walking the MRO of the operator class. See _extract_literal_kwargs.
+        try:
+            literal_kwargs = _extract_literal_kwargs(
+                task, frozenset(task.template_fields or ())
+            )
+        except Exception:
+            literal_kwargs = {}  # per-task isolation
+        for k, v in literal_kwargs.items():
+            if k not in fields:
+                fields[k] = RenderedField(
+                    rendered=v,
                     provenance=[ProvenanceEntry(source="literal")],
                 )
 
