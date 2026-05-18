@@ -11,6 +11,7 @@ Run as: python -m airflow_diff.renderer --worktree <path> --commit-sha <sha> \\
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import importlib.util
 import json
 import sys
@@ -369,6 +370,8 @@ def main(argv: list[str] | None = None) -> int:
             sys.path.insert(0, str(p))
 
     synthetic_logical_date = config.get("synthetic_logical_date", "2025-01-01T00:00:00+00:00")
+    excluded_files = config.get("excluded_files") or []
+    excluded_dag_ids = config.get("excluded_dag_ids") or []
 
     from airflow.models import DAG
     from airflow_diff.schema import (
@@ -378,6 +381,9 @@ def main(argv: list[str] | None = None) -> int:
     rendered: list[RenderedDag] = []
     if dags_folder.exists():
         for py in sorted(dags_folder.rglob("*.py")):
+            rel_to_dags = str(py.relative_to(dags_folder))
+            if any(fnmatch.fnmatch(rel_to_dags, pat) for pat in excluded_files):
+                continue
             try:
                 globs = _import_dag_file(py)
             except Exception as e:
@@ -388,6 +394,8 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             for v in globs.values():
                 if isinstance(v, DAG):
+                    if any(fnmatch.fnmatch(v.dag_id, pat) for pat in excluded_dag_ids):
+                        continue
                     try:
                         rendered.append(_render_dag(v, synthetic_logical_date))
                     except Exception as e:

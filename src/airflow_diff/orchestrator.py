@@ -45,6 +45,8 @@ def _spawn_renderer(python: Path, worktree: Path, sha: str, config: Config,
             "dags_folder": config.dags_folder,
             "plugins_folder": config.plugins_folder,
             "synthetic_logical_date": config.synthetic_logical_date.isoformat(),
+            "excluded_files": config.excluded_files,
+            "excluded_dag_ids": config.excluded_dag_ids,
         }),
     ]
     if fixtures_yaml is not None:
