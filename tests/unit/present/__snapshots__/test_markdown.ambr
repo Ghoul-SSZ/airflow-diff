@@ -1,0 +1,83 @@
+# serializer version: 1
+# name: test_empty_diff_renders
+  '''
+  ## airflow-diff
+  
+  No DAG differences detected.
+  
+  '''
+# ---
+# name: test_mermaid_block_in_output
+  '''
+  ## airflow-diff: 1 DAG changed
+  
+  Base: `abc1234` → Head: `def5678`
+  ### `my_dag` — 1 task added, 1 task modified
+  ```mermaid
+  graph LR
+    classDef added fill:#dafbe1,stroke:#1a7f37,stroke-width:2px,color:#1a7f37
+    classDef removed fill:#ffebe9,stroke:#cf222e,stroke-width:2px,color:#cf222e
+    classDef modified fill:#fff8c5,stroke:#9a6700,stroke-width:2px,color:#9a6700
+    classDef unchanged fill:#f6f8fa,stroke:#656d76,color:#1f2328
+    n_extract_data["extract_data ✎"]:::modified
+    n_transform["transform"]:::unchanged
+    n_validate_data["+ validate_data"]:::added
+    n_extract_data -.-> n_transform
+    n_extract_data ==> n_validate_data
+    linkStyle 0 stroke:#cf222e,stroke-width:1.5px,stroke-dasharray:5
+    linkStyle 1 stroke:#1a7f37,stroke-width:2.5px
+  ```
+  | Task | Field | Change |
+  |------|-------|--------|
+  | `extract_data` | `bash_command` | modified |
+  | `extract_data` → `transform` | _(downstream edge)_ | removed |
+  | `extract_data` → `validate_data` | _(downstream edge)_ | added |
+  | `validate_data` | _(whole task)_ | added |
+  <details><summary>my_dag.extract_data.bash_command</summary>
+  
+  ```diff
+  - aws s3 cp s3://<VAR:bucket>/2025-01-01 /tmp/in
+  + aws s3 cp s3://<VAR:bucket_v2>/2025-01-01 /tmp/in
+  ```
+  
+  </details>
+  
+  '''
+# ---
+# name: test_single_dag_one_change
+  '''
+  ## airflow-diff: 1 DAG changed
+  
+  Base: `abc1234` → Head: `def5678`
+  ### `my_dag` — 1 task added, 1 task modified
+  ```mermaid
+  graph LR
+    classDef added fill:#dafbe1,stroke:#1a7f37,stroke-width:2px,color:#1a7f37
+    classDef removed fill:#ffebe9,stroke:#cf222e,stroke-width:2px,color:#cf222e
+    classDef modified fill:#fff8c5,stroke:#9a6700,stroke-width:2px,color:#9a6700
+    classDef unchanged fill:#f6f8fa,stroke:#656d76,color:#1f2328
+    n_extract_data["extract_data ✎"]:::modified
+    n_transform["transform"]:::unchanged
+    n_validate_data["+ validate_data"]:::added
+    n_extract_data -.-> n_transform
+    n_extract_data ==> n_validate_data
+    linkStyle 0 stroke:#cf222e,stroke-width:1.5px,stroke-dasharray:5
+    linkStyle 1 stroke:#1a7f37,stroke-width:2.5px
+  ```
+  | Task | Field | Change |
+  |------|-------|--------|
+  | `extract_data` | `bash_command` | modified |
+  | `extract_data` → `transform` | _(downstream edge)_ | removed |
+  | `extract_data` → `validate_data` | _(downstream edge)_ | added |
+  | `validate_data` | _(whole task)_ | added |
+  <details><summary>my_dag.extract_data.bash_command</summary>
+  
+  ```diff
+  - aws s3 cp s3://<VAR:bucket>/2025-01-01 /tmp/in
+  + aws s3 cp s3://<VAR:bucket_v2>/2025-01-01 /tmp/in
+  ```
+  
+  </details>
+  
+  '''
+# ---

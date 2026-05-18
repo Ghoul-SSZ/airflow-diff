@@ -1,0 +1,8 @@
+dags_folder = "my_dags"
+plugins_folder = "my_plugins"
+fixtures_path = ".airflow-diff/fix.yaml"
+excluded_files = ["legacy/*.py"]
+excluded_dag_ids = ["sandbox_*"]
+synthetic_logical_date = "2024-06-01T00:00:00+00:00"
+render_timeout_seconds = 600
+max_tasks_for_graph = 100

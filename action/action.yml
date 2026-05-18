@@ -1,0 +1,51 @@
+name: "airflow-diff"
+description: "Render and diff Apache Airflow DAGs across a PR's base and head commits, posted as a PR comment."
+author: "airflow-diff contributors"
+branding:
+  icon: "git-pull-request"
+  color: "blue"
+inputs:
+  airflow-diff-version:
+    description: "Version of airflow-diff to install"
+    required: false
+    default: "0.1.0"
+  python-version:
+    description: "Python version to use"
+    required: false
+    default: "3.11"
+  base-sha:
+    description: "Base SHA (defaults to GitHub PR base)"
+    required: false
+  head-sha:
+    description: "Head SHA (defaults to GitHub PR head)"
+    required: false
+  github-token:
+    description: "Token with permissions to post PR comments"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+    - name: Install uv
+      shell: bash
+      run: pipx install uv
+    - name: Install airflow-diff
+      shell: bash
+      run: pip install airflow-diff==${{ inputs.airflow-diff-version }}
+    - name: Run airflow-diff
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        INPUT_BASE_SHA: ${{ inputs.base-sha }}
+        INPUT_HEAD_SHA: ${{ inputs.head-sha }}
+      run: ${{ github.action_path }}/entrypoint.sh
+    - name: Upload HTML report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: airflow-diff-report
+        path: /tmp/airflow-diff-report.html
+        if-no-files-found: ignore

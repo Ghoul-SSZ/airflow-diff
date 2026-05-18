@@ -1,0 +1,85 @@
+# serializer version: 1
+# name: test_single_dag
+  '''
+  <!doctype html>
+  <html><head><meta charset="utf-8"><title>airflow-diff</title>
+  <style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1f2328; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #d0d7de; padding: 6px 12px; text-align: left; }
+  th { background: #f6f8fa; }
+  pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow-x: auto; }
+  code { background: #afb8c133; padding: .2em .4em; border-radius: 6px; }
+  details { margin: 8px 0; }
+  summary { cursor: pointer; color: #0969da; }
+  .diff-add { color: #1a7f37; background: #dafbe1; display: block; }
+  .diff-del { color: #cf222e; background: #ffebe9; display: block; }
+  </style>
+  <script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true });
+  </script>
+  </head><body>
+  <pre style="display:none" id="raw-md">## airflow-diff: 1 DAG changed
+  
+  Base: `abc1234` → Head: `def5678`
+  ### `my_dag` — 1 task added, 1 task modified
+  ```mermaid
+  graph LR
+    classDef added fill:#dafbe1,stroke:#1a7f37,stroke-width:2px,color:#1a7f37
+    classDef removed fill:#ffebe9,stroke:#cf222e,stroke-width:2px,color:#cf222e
+    classDef modified fill:#fff8c5,stroke:#9a6700,stroke-width:2px,color:#9a6700
+    classDef unchanged fill:#f6f8fa,stroke:#656d76,color:#1f2328
+    n_extract_data[&quot;extract_data ✎&quot;]:::modified
+    n_transform[&quot;transform&quot;]:::unchanged
+    n_validate_data[&quot;+ validate_data&quot;]:::added
+    n_extract_data -.-&gt; n_transform
+    n_extract_data ==&gt; n_validate_data
+    linkStyle 0 stroke:#cf222e,stroke-width:1.5px,stroke-dasharray:5
+    linkStyle 1 stroke:#1a7f37,stroke-width:2.5px
+  ```
+  | Task | Field | Change |
+  |------|-------|--------|
+  | `extract_data` | `bash_command` | modified |
+  | `extract_data` → `transform` | _(downstream edge)_ | removed |
+  | `extract_data` → `validate_data` | _(downstream edge)_ | added |
+  | `validate_data` | _(whole task)_ | added |
+  &lt;details&gt;&lt;summary&gt;my_dag.extract_data.bash_command&lt;/summary&gt;
+  
+  ```diff
+  - aws s3 cp s3://&lt;VAR:bucket&gt;/2025-01-01 /tmp/in
+  + aws s3 cp s3://&lt;VAR:bucket_v2&gt;/2025-01-01 /tmp/in
+  ```
+  
+  &lt;/details&gt;
+  </pre>
+  <div id="rendered"><h2>airflow-diff: 1 DAG changed</h2>
+  
+  Base: `abc1234` → Head: `def5678`<br>
+  <h3>`my_dag` — 1 task added, 1 task modified</h3>
+  <pre class="mermaid">graph LR
+    classDef added fill:#dafbe1,stroke:#1a7f37,stroke-width:2px,color:#1a7f37
+    classDef removed fill:#ffebe9,stroke:#cf222e,stroke-width:2px,color:#cf222e
+    classDef modified fill:#fff8c5,stroke:#9a6700,stroke-width:2px,color:#9a6700
+    classDef unchanged fill:#f6f8fa,stroke:#656d76,color:#1f2328
+    n_extract_data[&quot;extract_data ✎&quot;]:::modified
+    n_transform[&quot;transform&quot;]:::unchanged
+    n_validate_data[&quot;+ validate_data&quot;]:::added
+    n_extract_data -.-&gt; n_transform
+    n_extract_data ==&gt; n_validate_data
+    linkStyle 0 stroke:#cf222e,stroke-width:1.5px,stroke-dasharray:5
+    linkStyle 1 stroke:#1a7f37,stroke-width:2.5px</pre>
+  <table><thead><tr><th>Task</th><th>Field</th><th>Change</th></tr></thead><tbody><tr><td>`extract_data`</td><td>`bash_command`</td><td>modified</td></tr><tr><td>`extract_data` → `transform`</td><td>_(downstream edge)_</td><td>removed</td></tr><tr><td>`extract_data` → `validate_data`</td><td>_(downstream edge)_</td><td>added</td></tr><tr><td>`validate_data`</td><td>_(whole task)_</td><td>added</td></tr></tbody></table>
+  <details><summary>my_dag.extract_data.bash_command</summary>
+  
+  <pre><span class="diff-del">- aws s3 cp s3://&lt;VAR:bucket&gt;/2025-01-01 /tmp/in</span>
+  <span class="diff-add">+ aws s3 cp s3://&lt;VAR:bucket_v2&gt;/2025-01-01 /tmp/in</span></pre>
+  
+  </details></div>
+  <script>
+  // Light client-side conversion: render the markdown via marked.js, then init mermaid for any code fences with lang=mermaid.
+  </script>
+  </body></html>
+  
+  '''
+# ---
