@@ -240,8 +240,18 @@ def _collect_outlets(dag) -> list:
 def _extract_dataset_uris(items) -> list[str]:
     if not items:
         return []
-    uris = []
-    for it in items:
+    # Airflow's dataset_triggers type varies across 2.8/2.9/2.10. On 2.9 it can
+    # be a non-iterable BaseDatasetEventInput. Walk defensively: pull a `uri`
+    # off the object itself, then attempt iteration. If neither works, return [].
+    uris: list[str] = []
+    direct = getattr(items, "uri", None)
+    if direct:
+        uris.append(direct)
+    try:
+        iterator = iter(items)
+    except TypeError:
+        return uris
+    for it in iterator:
         uri = getattr(it, "uri", None)
         if uri:
             uris.append(uri)
