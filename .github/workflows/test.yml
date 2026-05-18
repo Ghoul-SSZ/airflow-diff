@@ -13,7 +13,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: ${{ matrix.python-version }} }
+        with:
+          python-version: ${{ matrix.python-version }}
       - run: pipx install uv
       - run: uv pip install --system -e ".[dev]"
       - run: pytest tests/unit -v
@@ -27,16 +28,18 @@ jobs:
         airflow-version: ["2.8.4", "2.9.3", "2.10.3"]
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
-        with: { python-version: ${{ matrix.python-version }} }
+        with:
+          python-version: ${{ matrix.python-version }}
       - run: pipx install uv
       - name: Install with pinned Airflow
         run: |
           uv venv .venv
           source .venv/bin/activate
           uv pip install -e .
-          uv pip install "apache-airflow==${{ matrix.airflow-version }}" pytest pytest-cov syrupy
+          uv pip install "apache-airflow==${{ matrix.airflow-version }}" pytest pytest-cov pytest-timeout syrupy
       - name: Run integration tests
         run: |
           source .venv/bin/activate
