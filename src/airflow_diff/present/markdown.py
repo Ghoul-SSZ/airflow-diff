@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from airflow_diff.schema import DagDiff, DiffDocument, FieldDiff, TaskDiff
 
+MAX_TASKS_FOR_GRAPH = 50  # honored from config in orchestrator; constant here for unit-test simplicity
+
 
 def render_markdown(doc: DiffDocument) -> str:
     if not doc.dags and not doc.render_errors:
@@ -60,8 +62,10 @@ def _warning_banner(doc: DiffDocument) -> str:
 
 def _render_dag_section(d: DagDiff, *, collapsed: bool) -> str:
     parts: list[str] = []
-    title = f"### `{d.dag_id}` — {_dag_change_summary(d)}"
-    parts.append(title)
+    parts.append(f"### `{d.dag_id}` — {_dag_change_summary(d)}")
+    graph = _render_mermaid(d)
+    if graph:
+        parts.append(graph)
     table = _summary_table(d)
     if table:
         parts.append(table)
@@ -121,4 +125,66 @@ def _collapsible_field_diff(dag_id: str, task_id: str, fd: FieldDiff) -> str:
         f"- {fd.before}\n"
         f"+ {fd.after}\n"
         f"```\n\n</details>"
+    )
+
+
+def _render_mermaid(d: DagDiff) -> str:
+    # Build the union node set: every task touched by any diff
+    nodes: dict[str, str] = {}  # task_id -> css class (added/removed/modified/unchanged)
+    edges: list[tuple[str, str, str]] = []  # (from, to, class)
+
+    for td in d.task_diffs:
+        css = {
+            "added": "added", "removed": "removed", "modified": "modified",
+        }.get(td.change_type, "unchanged")
+        nodes[td.task_id] = css
+        for ed in td.edge_diffs:
+            other = ed.related_task_id
+            nodes.setdefault(other, "unchanged")
+            if ed.direction == "downstream":
+                edges.append((td.task_id, other, ed.change_type))
+            else:
+                edges.append((other, td.task_id, ed.change_type))
+
+    if not nodes:
+        return ""
+    if len(nodes) > MAX_TASKS_FOR_GRAPH:
+        return _graph_summary_box(d)
+
+    lines = ["```mermaid", "graph LR",
+             "  classDef added fill:#dafbe1,stroke:#1a7f37,stroke-width:2px,color:#1a7f37",
+             "  classDef removed fill:#ffebe9,stroke:#cf222e,stroke-width:2px,color:#cf222e",
+             "  classDef modified fill:#fff8c5,stroke:#9a6700,stroke-width:2px,color:#9a6700",
+             "  classDef unchanged fill:#f6f8fa,stroke:#656d76,color:#1f2328"]
+    for tid, css in sorted(nodes.items()):
+        label = tid
+        if css == "added": label = f"+ {tid}"
+        elif css == "modified": label = f"{tid} ✎"
+        elif css == "removed": label = f"- {tid}"
+        lines.append(f'  {_mermaid_id(tid)}["{label}"]:::{css}')
+    link_styles: list[str] = []
+    for i, (a, b, change) in enumerate(edges):
+        arrow = "==>" if change == "added" else ("-.->" if change == "removed" else "-->")
+        lines.append(f"  {_mermaid_id(a)} {arrow} {_mermaid_id(b)}")
+        if change == "added":
+            link_styles.append(f"  linkStyle {i} stroke:#1a7f37,stroke-width:2.5px")
+        elif change == "removed":
+            link_styles.append(f"  linkStyle {i} stroke:#cf222e,stroke-width:1.5px,stroke-dasharray:5")
+    lines.extend(link_styles)
+    lines.append("```")
+    return "\n".join(lines)
+
+
+def _mermaid_id(task_id: str) -> str:
+    """Mermaid node IDs cannot contain dots or special chars. Sanitize."""
+    return "n_" + "".join(c if c.isalnum() else "_" for c in task_id)
+
+
+def _graph_summary_box(d: DagDiff) -> str:
+    n_add = sum(1 for t in d.task_diffs if t.change_type == "added")
+    n_rem = sum(1 for t in d.task_diffs if t.change_type == "removed")
+    n_mod = sum(1 for t in d.task_diffs if t.change_type == "modified")
+    return (
+        f"> _Graph omitted — DAG has more than {MAX_TASKS_FOR_GRAPH} tasks._\n"
+        f"> Tasks: **{n_add} added**, **{n_mod} modified**, **{n_rem} removed**."
     )

@@ -27,6 +27,16 @@
               "provenance_after":  [{"source": "stub", "key": "var.value.bucket_v2"}]
             }
           ],
+          "edge_diffs": [
+            {"direction": "downstream", "change_type": "removed", "task_id": "extract_data", "related_task_id": "transform"},
+            {"direction": "downstream", "change_type": "added",   "task_id": "extract_data", "related_task_id": "validate_data"}
+          ]
+        },
+        {
+          "task_id": "validate_data",
+          "change_type": "added",
+          "operator_after": "airflow.operators.python.PythonOperator",
+          "field_diffs": [],
           "edge_diffs": []
         }
       ]

@@ -20,3 +20,13 @@ def test_empty_diff_renders(snapshot):
 def test_single_dag_one_change(snapshot):
     output = render_markdown(_load("single_dag_one_change.json"))
     assert output == snapshot
+
+
+def test_mermaid_block_in_output(snapshot):
+    output = render_markdown(_load("single_dag_one_change.json"))
+    # Snapshot the whole output (re-records the fixture above):
+    assert output == snapshot
+    # Sanity assertions that don't rely on the full snapshot:
+    assert "```mermaid" in output
+    assert "classDef added" in output
+    assert "validate_data" in output
