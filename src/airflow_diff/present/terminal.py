@@ -10,7 +10,7 @@ BOLD = "\033[1m"
 RESET = "\033[0m"
 
 
-def render_terminal(doc: DiffDocument) -> str:
+def render_terminal(doc: DiffDocument, config=None) -> str:
     if not doc.dags and not doc.render_errors:
         return f"{BOLD}airflow-diff:{RESET} no DAG differences detected.\n"
     lines: list[str] = []

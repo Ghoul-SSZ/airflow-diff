@@ -74,7 +74,7 @@ def test_renders_task_groups(tmp_path: Path):
     [dag] = [d for d in bag.dags if d.dag_id == "task_groups"]
     groups = {g.group_id for g in dag.task_groups}
     assert "transform" in groups
-    clean = next(t for t in dag.tasks if t.task_id == "transform.clean" or t.task_id == "clean")
+    clean = next(t for t in dag.tasks if t.task_id == "transform.clean")
     assert clean.task_group == "transform"
 
 

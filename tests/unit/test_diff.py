@@ -190,3 +190,55 @@ def test_edge_diff_upstream_added():
     t2_edges = by_id["t2"].edge_diffs
     assert any(e.direction == "upstream" and e.change_type == "added"
                and e.related_task_id == "t1" for e in t2_edges)
+
+
+def test_render_errors_populated_for_pair_status_transitions():
+    """render_errors should include one entry per regressed/fixed/still_broken DAG."""
+    regressed_dag = _ok_dag("dag_regressed")
+    regressed_head = _err_dag("dag_regressed")
+
+    fixed_base = _err_dag("dag_fixed")
+    fixed_dag = _ok_dag("dag_fixed")
+
+    still_broken_base = _err_dag("dag_still_broken")
+    still_broken_head = _err_dag("dag_still_broken").model_copy(
+        update={"error": RenderError(type="ValueError", message="different error", traceback="...")}
+    )
+
+    diff = compute_diff(
+        _bag("x", [regressed_dag, fixed_base, still_broken_base]),
+        _bag("y", [regressed_head, fixed_dag, still_broken_head]),
+        touched_files=[],
+    )
+
+    by_dag = {e.dag_id: e for e in diff.render_errors}
+    assert set(by_dag.keys()) == {"dag_regressed", "dag_fixed", "dag_still_broken"}
+    assert by_dag["dag_regressed"].side == "head"
+    assert by_dag["dag_fixed"].side == "base"
+    assert by_dag["dag_still_broken"].side == "both"
+
+
+def test_render_error_marker_propagated_to_field_diff():
+    """When a rendered field contains a <RENDER_ERROR:> marker, FieldDiff should populate
+    render_error_after with the extracted error type."""
+    a = _ok_dag("d")
+    a.tasks = [_task("t1", bash="echo ok")]
+
+    b = _ok_dag("d")
+    b.tasks = [RenderedTask(
+        task_id="t1",
+        operator="airflow.operators.bash.BashOperator",
+        upstream=[], downstream=[],
+        fields={"bash_command": RenderedField(
+            rendered="<RENDER_ERROR: ValueError>",
+            provenance=[ProvenanceEntry(source="literal")],
+        )},
+    )]
+
+    diff = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[])
+    [dd] = diff.dags
+    [td] = dd.task_diffs
+    [fd] = td.field_diffs
+    assert fd.render_error_after is not None
+    assert fd.render_error_after.type == "ValueError"
+    assert fd.render_error_before is None

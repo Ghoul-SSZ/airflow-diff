@@ -51,7 +51,7 @@ def _cmd_diff(args) -> int:
     repo = Path(args.repo).resolve()
     config = load_config(repo)
     diff = run_diff(repo, args.base_ref, args.head_ref, config)
-    _emit(diff, args.format, args.out)
+    _emit(diff, args.format, args.out, config=config)
     if args.json_out:
         Path(args.json_out).write_text(diff.model_dump_json(indent=2))
     return _exit_code(diff)
@@ -65,6 +65,7 @@ def _cmd_report(args) -> int:
 
 def _cmd_render(args) -> int:
     # Convenience wrapper around `python -m airflow_diff.renderer`
+    import os
     import subprocess as sp
     from airflow_diff.worktree import resolve_sha, worktree_for
     from airflow_diff.venv import venv_for
@@ -72,10 +73,16 @@ def _cmd_render(args) -> int:
     sha = resolve_sha(repo, args.ref)
     with worktree_for(repo, sha) as wt:
         py = venv_for(wt)
+        # Inject our package onto PYTHONPATH so the renderer can import airflow_diff.schema
+        _pkg_src = str(Path(__file__).parent.parent)  # …/src/
+        _existing = os.environ.get("PYTHONPATH", "")
+        _pythonpath = f"{_pkg_src}:{_existing}" if _existing else _pkg_src
+        env = {**os.environ, "PYTHONPATH": _pythonpath}
         res = sp.run(
             [str(py), "-m", "airflow_diff.renderer",
              "--worktree", str(wt), "--commit-sha", sha, "--config", "{}"],
             capture_output=True, text=True, check=False,
+            env=env,
         )
     if res.returncode != 0:
         print(res.stderr, file=sys.stderr)
@@ -87,15 +94,15 @@ def _cmd_render(args) -> int:
     return 0
 
 
-def _emit(diff: DiffDocument, fmt: str, out_path: str | None) -> None:
+def _emit(diff: DiffDocument, fmt: str, out_path: str | None, config=None) -> None:
     if fmt == "markdown":
-        text = render_markdown(diff)
+        text = render_markdown(diff, config=config)
     elif fmt == "terminal":
         from airflow_diff.present.terminal import render_terminal
-        text = render_terminal(diff)
+        text = render_terminal(diff, config=config)
     else:
         from airflow_diff.present.html import render_html
-        text = render_html(diff)
+        text = render_html(diff, config=config)
     if out_path:
         Path(out_path).write_text(text)
     else:

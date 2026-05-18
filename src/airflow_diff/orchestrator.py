@@ -11,7 +11,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from airflow_diff.config import Config, load_fixtures
+from airflow_diff.config import Config
 from airflow_diff.diff import compute_diff
 from airflow_diff.schema import DiffDocument, RenderedDagBag
 from airflow_diff.venv import venv_for

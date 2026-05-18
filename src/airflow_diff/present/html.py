@@ -40,8 +40,8 @@ mermaid.initialize({{ startOnLoad: true }});
 """
 
 
-def render_html(doc: DiffDocument) -> str:
-    md = render_markdown(doc)
+def render_html(doc: DiffDocument, config=None) -> str:
+    md = render_markdown(doc, config=config)
     rendered = _markdown_to_html(md)
     return _TEMPLATE.format(md_escaped=html.escape(md), rendered=rendered)
 
@@ -56,6 +56,16 @@ def _markdown_to_html(md: str) -> str:
     lines = md.splitlines()
     while i < len(lines):
         line = lines[i]
+        if line.startswith("> "):
+            # Collect consecutive blockquote lines
+            j = i
+            bq_lines = []
+            while j < len(lines) and lines[j].startswith("> "):
+                bq_lines.append(html.escape(lines[j][2:]))
+                j += 1
+            out.append("<blockquote>" + "<br>".join(bq_lines) + "</blockquote>")
+            i = j
+            continue
         if line.startswith("```mermaid"):
             j = i + 1
             body = []

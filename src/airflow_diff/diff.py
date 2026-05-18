@@ -9,7 +9,7 @@ from __future__ import annotations
 from airflow_diff.schema import (
     AttrDiff, DagDiff, DiffDocument, DiffSummary, EdgeDiff, FieldDiff,
     RenderedDag, RenderedDagBag, RenderedField, RenderedTask,
-    RenderErrorEntry, SCHEMA_VERSION, TaskDiff,
+    RenderError, RenderErrorEntry, SCHEMA_VERSION, TaskDiff,
 )
 
 
@@ -56,6 +56,17 @@ def compute_diff(
         dd = _compare_dag(b, h, touched_set)
         if dd is not None:
             dag_diffs.append(dd)
+
+    # Populate render_errors from pair_status transitions
+    for dd in dag_diffs:
+        if dd.pair_status in ("regressed", "fixed", "still_broken"):
+            side = "both" if dd.pair_status == "still_broken" else (
+                "head" if dd.pair_status == "regressed" else "base"
+            )
+            render_errors.append(RenderErrorEntry(
+                dag_id=dd.dag_id, side=side,
+                error_base=dd.error_before, error_head=dd.error_after,
+            ))
 
     summary = _summarize(dag_diffs)
     return DiffDocument(
@@ -172,6 +183,19 @@ def _diff_one_task(a: RenderedTask, b: RenderedTask) -> TaskDiff | None:
     )
 
 
+def _extract_render_error(rendered) -> RenderError | None:
+    """If rendered is a <RENDER_ERROR: ...> marker string, return a minimal RenderError."""
+    if isinstance(rendered, str) and rendered.startswith("<RENDER_ERROR:"):
+        # Extract the error type from the marker, e.g. "<RENDER_ERROR: ValueError>"
+        inner = rendered[len("<RENDER_ERROR:"):].strip().rstrip(">").strip()
+        return RenderError(
+            type=inner,
+            message=rendered,
+            traceback="(see renderer logs)",
+        )
+    return None
+
+
 def _diff_fields(a: dict[str, RenderedField], b: dict[str, RenderedField]) -> list[FieldDiff]:
     out: list[FieldDiff] = []
     for name in sorted(set(a) | set(b)):
@@ -181,17 +205,21 @@ def _diff_fields(a: dict[str, RenderedField], b: dict[str, RenderedField]) -> li
             out.append(FieldDiff(
                 name=name, change_type="added",
                 after=fb.rendered, provenance_after=fb.provenance,
+                render_error_after=_extract_render_error(fb.rendered),
             ))
         elif fb is None:
             out.append(FieldDiff(
                 name=name, change_type="removed",
                 before=fa.rendered, provenance_before=fa.provenance,
+                render_error_before=_extract_render_error(fa.rendered),
             ))
         elif fa != fb:
             out.append(FieldDiff(
                 name=name, change_type="modified",
                 before=fa.rendered, after=fb.rendered,
                 provenance_before=fa.provenance, provenance_after=fb.provenance,
+                render_error_before=_extract_render_error(fa.rendered),
+                render_error_after=_extract_render_error(fb.rendered),
             ))
     return out
 

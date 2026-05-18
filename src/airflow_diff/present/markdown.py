@@ -11,12 +11,16 @@ MAX_TASKS_FOR_GRAPH = 50  # honored from config in orchestrator; constant here f
 GITHUB_COMMENT_CHAR_LIMIT = 65_536
 
 
-def render_markdown(doc: DiffDocument) -> str:
-    full = _render_internal(doc)
-    if len(full) <= GITHUB_COMMENT_CHAR_LIMIT:
+def render_markdown(doc: DiffDocument, config=None) -> str:
+    max_tasks = config.max_tasks_for_graph if config is not None else MAX_TASKS_FOR_GRAPH
+    char_limit = config.github_comment_char_limit if (
+        config is not None and hasattr(config, "github_comment_char_limit")
+    ) else GITHUB_COMMENT_CHAR_LIMIT
+    full = _render_internal(doc, max_tasks)
+    if len(full) <= char_limit:
         return full
     # Truncate to ~90% of the limit, then append a footer linking to the artifact.
-    cutoff = int(GITHUB_COMMENT_CHAR_LIMIT * 0.9)
+    cutoff = int(char_limit * 0.9)
     truncated = full[:cutoff]
     # Avoid cutting in the middle of a code fence or details block:
     last_safe_newline = truncated.rfind("\n\n")
@@ -25,14 +29,14 @@ def render_markdown(doc: DiffDocument) -> str:
     footer = (
         "\n\n---\n\n"
         "> ⚠️ **Output truncated** — the full diff exceeds GitHub's PR-comment "
-        f"character limit ({GITHUB_COMMENT_CHAR_LIMIT:,}).\n"
+        f"character limit ({char_limit:,}).\n"
         "> The complete HTML report has been uploaded as a workflow artifact "
         "(see the run's Artifacts panel for `airflow-diff-report.html`).\n"
     )
     return truncated + footer
 
 
-def _render_internal(doc: DiffDocument) -> str:
+def _render_internal(doc: DiffDocument, max_tasks_for_graph: int = MAX_TASKS_FOR_GRAPH) -> str:
     if not doc.dags and not doc.render_errors:
         return "## airflow-diff\n\nNo DAG differences detected.\n"
 
@@ -47,11 +51,11 @@ def _render_internal(doc: DiffDocument) -> str:
     incidental = [d for d in doc.dags if d.classification == "incidentally_affected"]
 
     for d in touched + added + removed:
-        parts.append(_render_dag_section(d, collapsed=False))
+        parts.append(_render_dag_section(d, collapsed=False, max_tasks_for_graph=max_tasks_for_graph))
     if incidental:
         parts.append("<details><summary>DAGs incidentally affected (not touched by this PR)</summary>\n")
         for d in incidental:
-            parts.append(_render_dag_section(d, collapsed=False))
+            parts.append(_render_dag_section(d, collapsed=False, max_tasks_for_graph=max_tasks_for_graph))
         parts.append("\n</details>\n")
     return "\n".join(parts) + "\n"
 
@@ -76,16 +80,19 @@ def _warning_banner(doc: DiffDocument) -> str:
     regressed = [d.dag_id for d in doc.dags if d.pair_status == "regressed"]
     if regressed:
         msgs.append(f"⚠️ **Regressions introduced by this PR:** {', '.join(f'`{i}`' for i in regressed)}")
+    still_broken = [d.dag_id for d in doc.dags if d.pair_status == "still_broken"]
+    if still_broken:
+        msgs.append(f"⚠️ **Still broken (render errors on both sides):** {', '.join(f'`{i}`' for i in still_broken)}")
     if doc.render_errors:
         ids = ", ".join(f"`{e.dag_id}`" for e in doc.render_errors)
         msgs.append(f"⚠️ **Render errors:** {ids}")
     return "\n".join(msgs) + "\n"
 
 
-def _render_dag_section(d: DagDiff, *, collapsed: bool) -> str:
+def _render_dag_section(d: DagDiff, *, collapsed: bool, max_tasks_for_graph: int = MAX_TASKS_FOR_GRAPH) -> str:
     parts: list[str] = []
     parts.append(f"### `{d.dag_id}` — {_dag_change_summary(d)}")
-    graph = _render_mermaid(d)
+    graph = _render_mermaid(d, max_tasks_for_graph=max_tasks_for_graph)
     if graph:
         parts.append(graph)
     table = _summary_table(d)
@@ -141,8 +148,14 @@ def _render_task_details(td: TaskDiff, dag_id: str) -> list[str]:
 
 
 def _collapsible_field_diff(dag_id: str, task_id: str, fd: FieldDiff) -> str:
+    error_notes = []
+    if fd.render_error_before:
+        error_notes.append(f"render error in base: {fd.render_error_before.type}")
+    if fd.render_error_after:
+        error_notes.append(f"render error in head: {fd.render_error_after.type}")
+    suffix = f" ⚠️ {'; '.join(error_notes)}" if error_notes else ""
     return (
-        f"<details><summary>{dag_id}.{task_id}.{fd.name}</summary>\n\n"
+        f"<details><summary>{dag_id}.{task_id}.{fd.name}{suffix}</summary>\n\n"
         f"```diff\n"
         f"- {fd.before}\n"
         f"+ {fd.after}\n"
@@ -150,7 +163,7 @@ def _collapsible_field_diff(dag_id: str, task_id: str, fd: FieldDiff) -> str:
     )
 
 
-def _render_mermaid(d: DagDiff) -> str:
+def _render_mermaid(d: DagDiff, max_tasks_for_graph: int = MAX_TASKS_FOR_GRAPH) -> str:
     # Build the union node set: every task touched by any diff
     nodes: dict[str, str] = {}  # task_id -> css class (added/removed/modified/unchanged)
     edges: list[tuple[str, str, str]] = []  # (from, to, class)
@@ -170,7 +183,7 @@ def _render_mermaid(d: DagDiff) -> str:
 
     if not nodes:
         return ""
-    if len(nodes) > MAX_TASKS_FOR_GRAPH:
+    if len(nodes) > max_tasks_for_graph:
         return _graph_summary_box(d)
 
     lines = ["```mermaid", "graph LR",
