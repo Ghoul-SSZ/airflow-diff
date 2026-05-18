@@ -55,3 +55,14 @@ def test_load_fixtures_bad_yaml_raises(tmp_path: Path):
     p.write_text("variables: [not a dict]\n")
     with pytest.raises(ValueError):
         load_fixtures(p)
+
+
+def test_fail_on_sensor_mismatch_default_false(tmp_path: Path):
+    cfg = load_config(tmp_path)
+    assert cfg.fail_on_sensor_mismatch is False
+
+
+def test_fail_on_sensor_mismatch_loads_from_toml(tmp_path: Path):
+    (tmp_path / ".airflow-diff.toml").write_text((FIXTURES / "full.toml").read_text())
+    cfg = load_config(tmp_path)
+    assert cfg.fail_on_sensor_mismatch is True
