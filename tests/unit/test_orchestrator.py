@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 from airflow_diff.schema import DiffDocument, RenderedDagBag, SCHEMA_VERSION
 
 
@@ -118,3 +120,51 @@ def test_orchestrator_attaches_sensor_mismatches(tmp_path, monkeypatch):
     diff = orchestrator.run_diff(tmp_path, "aaa", "bbb", Config())
     assert len(diff.sensor_mismatches) == 1
     assert diff.sensor_mismatches[0].reason == "missing_execution_delta"
+
+
+def test_orchestrator_kills_renderer_on_timeout_and_raises(tmp_path, monkeypatch):
+    """When the renderer subprocess exceeds render_timeout_seconds, the
+    orchestrator must kill it (so it doesn't leak as a zombie) and raise
+    OrchestratorError with a clear timeout message."""
+    import subprocess as _subprocess
+    from airflow_diff import orchestrator
+    from airflow_diff.config import Config
+    from airflow_diff.orchestrator import OrchestratorError
+
+    monkeypatch.setattr(orchestrator, "resolve_sha", lambda r, s: s + "0" * (40 - len(s)))
+    monkeypatch.setattr(orchestrator, "ensure_sha_present", lambda r, s: None)
+
+    from contextlib import contextmanager
+    @contextmanager
+    def fake_wt(repo, sha, **kw):
+        p = tmp_path / sha
+        p.mkdir(exist_ok=True)
+        yield p
+    monkeypatch.setattr(orchestrator, "worktree_for", fake_wt)
+    monkeypatch.setattr(orchestrator, "venv_for", lambda wt, **kw: Path("/usr/bin/python3"))
+    monkeypatch.setattr(orchestrator, "_touched_files", lambda r, a, b: [])
+
+    kill_calls = {"n": 0}
+    wait_calls = {"n": 0}
+
+    def fake_popen(args, **kw):
+        proc = MagicMock()
+        # communicate() raises TimeoutExpired immediately — simulates a hang
+        proc.communicate.side_effect = _subprocess.TimeoutExpired(cmd=args, timeout=1)
+        def _kill():
+            kill_calls["n"] += 1
+        def _wait(timeout=None):
+            wait_calls["n"] += 1
+        proc.kill.side_effect = _kill
+        proc.wait.side_effect = _wait
+        return proc
+    monkeypatch.setattr(orchestrator.subprocess, "Popen", fake_popen)
+
+    cfg = Config(render_timeout_seconds=1)
+    with pytest.raises(OrchestratorError, match="timed out"):
+        orchestrator.run_diff(tmp_path, "aaa", "bbb", cfg)
+
+    # The subprocess must have been killed (not leaked).
+    assert kill_calls["n"] >= 1, "renderer subprocess was not killed on timeout"
+    # And the orchestrator should reap it to avoid a zombie.
+    assert wait_calls["n"] >= 1, "renderer subprocess was not waited on after kill"
