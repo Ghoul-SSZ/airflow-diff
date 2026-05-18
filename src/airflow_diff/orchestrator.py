@@ -61,7 +61,21 @@ def _spawn_renderer(python: Path, worktree: Path, sha: str, config: Config,
 
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                             env=env)
-    out, err = proc.communicate(timeout=config.render_timeout_seconds)
+    try:
+        out, err = proc.communicate(timeout=config.render_timeout_seconds)
+    except subprocess.TimeoutExpired:
+        # Popen.communicate raising TimeoutExpired leaves the child alive — we
+        # must kill it ourselves or it leaks as an orphan/zombie. Per spec §7.
+        proc.kill()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            # SIGKILL'd but reap deferred; OS will clean up eventually.
+            pass
+        raise OrchestratorError(
+            f"renderer subprocess timed out after {config.render_timeout_seconds}s "
+            f"for sha {sha}; killed."
+        )
     if proc.returncode != 0:
         raise OrchestratorError(
             f"renderer subprocess failed (exit {proc.returncode}) for sha {sha}:\n"
