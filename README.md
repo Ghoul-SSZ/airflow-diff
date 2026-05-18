@@ -16,6 +16,11 @@ DAGs. `airflow-diff` surfaces all of that at PR time.
 
 ## Install
 
+> **Pre-1.0:** `airflow-diff` is not yet published to PyPI and the GitHub
+> Action has no released tag. The install snippets and Action `uses:` line
+> below describe the intended invocations once `0.1.0` is published; until
+> then, install from source (`pip install git+https://github.com/Ghoul-SSZ/airflow-diff`).
+
 ```bash
 pip install airflow-diff
 ```
@@ -47,13 +52,21 @@ when `fail_on_sensor_mismatch = true` is set in `.airflow-diff.toml` (see
 
 ## GitHub Action usage
 
+The Action lives at `action/action.yml`, so reference it with the subdirectory
+suffix:
+
 ```yaml
 - uses: actions/checkout@v4
   with: { fetch-depth: 0 }   # required so the base SHA is reachable
-- uses: airflow-diff/airflow-diff@v0
+- uses: Ghoul-SSZ/airflow-diff/action@v0.1.0
   with:
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+> The `v0.1.0` tag does not exist yet. Pin to a specific commit SHA
+> (`Ghoul-SSZ/airflow-diff/action@<sha>`) until a release is cut. The Action's
+> internal `pip install airflow-diff==…` step will also fail until the
+> package is published to PyPI.
 
 The Action refuses to run on PRs from forks (it imports arbitrary Python from
 both commits, and that is not safe to run on untrusted code).
