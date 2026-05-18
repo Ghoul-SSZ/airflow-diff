@@ -92,8 +92,7 @@ def test_dag_fixed_error_then_ok():
 
 def test_dag_still_broken_error_both_sides():
     a = _err_dag("d")
-    # Construct a fresh RenderedDag rather than mutating post-construction (model_validator
-    # rejects status="error" with tasks/attrs; similarly rejects inconsistent combos).
+    # model_copy keeps the two _err_dag instances independent so we can vary the error message.
     b = _err_dag("d").model_copy(
         update={"error": RenderError(type="ImportError", message="boom v2", traceback="...")}
     )
@@ -123,6 +122,7 @@ def test_attr_added_and_removed():
     [dd] = diff.dags
     names = {ad.name for ad in dd.attr_diffs}
     assert "description" in names
+    assert "tags" not in names  # unchanged attrs must not appear
 
 
 from airflow_diff.schema import RenderedTask, RenderedField, ProvenanceEntry
