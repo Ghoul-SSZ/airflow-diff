@@ -101,3 +101,92 @@ def test_dag_still_broken_error_both_sides():
     [d] = diff.dags
     assert d.pair_status == "still_broken"
     assert diff.summary.dags_regressed == 0 and diff.summary.dags_fixed == 0
+
+
+def test_attr_diff_schedule_changed():
+    a = _ok_dag("d")
+    a.attrs = {"schedule": "0 5 * * *", "catchup": False}
+    b = _ok_dag("d")
+    b.attrs = {"schedule": "0 6 * * *", "catchup": False}
+    diff = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=["dags/d.py"])
+    [dd] = diff.dags
+    assert len(dd.attr_diffs) == 1
+    assert dd.attr_diffs[0].name == "schedule"
+    assert dd.attr_diffs[0].before == "0 5 * * *"
+    assert dd.attr_diffs[0].after == "0 6 * * *"
+
+
+def test_attr_added_and_removed():
+    a = _ok_dag("d"); a.attrs = {"tags": ["x"]}
+    b = _ok_dag("d"); b.attrs = {"tags": ["x"], "description": "new"}
+    diff = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[])
+    [dd] = diff.dags
+    names = {ad.name for ad in dd.attr_diffs}
+    assert "description" in names
+
+
+from airflow_diff.schema import RenderedTask, RenderedField, ProvenanceEntry
+
+
+def _task(task_id, *, bash: str = "echo x", upstream=(), downstream=()) -> RenderedTask:
+    return RenderedTask(
+        task_id=task_id,
+        operator="airflow.operators.bash.BashOperator",
+        upstream=list(upstream),
+        downstream=list(downstream),
+        fields={"bash_command": RenderedField(
+            rendered=bash, provenance=[ProvenanceEntry(source="literal")],
+        )},
+    )
+
+
+def test_task_added():
+    a = _ok_dag("d"); a.tasks = [_task("t1")]
+    b = _ok_dag("d"); b.tasks = [_task("t1"), _task("t2")]
+    [dd] = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[]).dags
+    by_id = {td.task_id: td for td in dd.task_diffs}
+    assert by_id["t2"].change_type == "added"
+    assert "t1" not in by_id
+
+
+def test_task_removed():
+    a = _ok_dag("d"); a.tasks = [_task("t1"), _task("t2")]
+    b = _ok_dag("d"); b.tasks = [_task("t1")]
+    [dd] = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[]).dags
+    by_id = {td.task_id: td for td in dd.task_diffs}
+    assert by_id["t2"].change_type == "removed"
+
+
+def test_task_field_modified():
+    a = _ok_dag("d"); a.tasks = [_task("t1", bash="echo old")]
+    b = _ok_dag("d"); b.tasks = [_task("t1", bash="echo new")]
+    [dd] = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[]).dags
+    [td] = dd.task_diffs
+    assert td.change_type == "modified"
+    [fd] = td.field_diffs
+    assert fd.name == "bash_command"
+    assert fd.before == "echo old"
+    assert fd.after == "echo new"
+
+
+def test_task_operator_class_changed():
+    a = _ok_dag("d"); a.tasks = [_task("t1")]
+    b = _ok_dag("d"); b.tasks = [_task("t1")]
+    b.tasks[0].operator = "airflow.operators.python.PythonOperator"
+    [dd] = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[]).dags
+    [td] = dd.task_diffs
+    assert td.change_type == "modified"
+    assert td.operator_before == "airflow.operators.bash.BashOperator"
+    assert td.operator_after == "airflow.operators.python.PythonOperator"
+
+
+def test_edge_diff_upstream_added():
+    a = _ok_dag("d"); a.tasks = [_task("t1"), _task("t2")]
+    b = _ok_dag("d"); b.tasks = [_task("t1", downstream=["t2"]), _task("t2", upstream=["t1"])]
+    [dd] = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[]).dags
+    # The two tasks both changed (edges added):
+    by_id = {td.task_id: td for td in dd.task_diffs}
+    # t2 has an upstream edge added pointing at t1:
+    t2_edges = by_id["t2"].edge_diffs
+    assert any(e.direction == "upstream" and e.change_type == "added"
+               and e.related_task_id == "t1" for e in t2_edges)
