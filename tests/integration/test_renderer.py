@@ -368,3 +368,31 @@ def test_literal_kwargs_skips_unserializable_objects(tmp_path: Path):
             assert "object at 0x" not in str(rendered), (
                 f"weight_rule on {task.task_id} captured a repr-fallback: {rendered!r}"
             )
+
+
+def test_external_task_sensor_kwargs_not_duplicated_in_fields(tmp_path: Path):
+    """ExternalTaskSensor constructor kwargs are captured in task.external_ref
+    (structured cross-DAG metadata). They must NOT also be picked up by the
+    literal-kwarg loop into task.fields, otherwise a sensor target change shows
+    up as both a cross-DAG mismatch row AND a per-field diff."""
+    (tmp_path / "dags").mkdir()
+    (tmp_path / "dags" / "with_delta.py").write_text(
+        (FIXTURES_ROOT / "dags_sensors" / "with_delta.py").read_text()
+    )
+    bag = _run_renderer(tmp_path)
+    [dag] = bag.dags
+    [task] = dag.tasks
+
+    # Sanity: external_ref IS populated (PR #2's work isn't broken).
+    assert task.external_ref is not None
+    assert task.external_ref.external_dag_id == "some_upstream"
+
+    # All cross-DAG-related kwargs MUST be absent from task.fields.
+    for name in (
+        "external_dag_id", "external_task_id", "external_task_ids",
+        "external_task_group_id", "execution_delta", "execution_date_fn",
+    ):
+        assert name not in task.fields, (
+            f"{name!r} appears in task.fields AND task.external_ref — "
+            f"this duplicates diff entries when the sensor target changes"
+        )
