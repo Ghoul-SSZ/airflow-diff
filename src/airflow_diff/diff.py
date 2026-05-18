@@ -74,15 +74,27 @@ def _compare_dag(base: RenderedDag, head: RenderedDag, touched: set[str]) -> Dag
     classification = "touched" if (
         base.source_file in touched or head.source_file in touched
     ) else "incidentally_affected"
+    pair_status = _pair_status(base.status, head.status)
     return DagDiff(
         dag_id=base.dag_id,
         classification=classification,
         status_a=base.status, status_b=head.status,
+        pair_status=pair_status,
         source_file_before=base.source_file,
         source_file_after=head.source_file,
         attr_diffs=[], task_diffs=[],
         error_before=base.error, error_after=head.error,
     )
+
+
+def _pair_status(a: str, b: str) -> str:
+    if a == "ok" and b == "ok":
+        return "ok"
+    if a == "ok" and b == "error":
+        return "regressed"
+    if a == "error" and b == "ok":
+        return "fixed"
+    return "still_broken"
 
 
 def _summarize(dag_diffs: list[DagDiff]) -> DiffSummary:

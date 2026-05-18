@@ -63,3 +63,41 @@ def test_dag_unchanged_not_present_in_diff():
     b = _bag("b", [_ok_dag("same")])
     diff = compute_diff(a, b, touched_files=[])
     assert diff.dags == []
+
+
+from airflow_diff.schema import RenderError
+
+
+def _err_dag(dag_id: str) -> RenderedDag:
+    return RenderedDag(
+        dag_id=dag_id, status="error", source_file=f"dags/{dag_id}.py",
+        error=RenderError(type="ImportError", message="boom", traceback="..."),
+    )
+
+
+def test_dag_regressed_ok_then_error():
+    diff = compute_diff(_bag("a", [_ok_dag("d")]), _bag("b", [_err_dag("d")]), touched_files=[])
+    [d] = diff.dags
+    assert d.pair_status == "regressed"
+    assert d.status_a == "ok" and d.status_b == "error"
+    assert diff.summary.dags_regressed == 1
+
+
+def test_dag_fixed_error_then_ok():
+    diff = compute_diff(_bag("a", [_err_dag("d")]), _bag("b", [_ok_dag("d")]), touched_files=[])
+    [d] = diff.dags
+    assert d.pair_status == "fixed"
+    assert diff.summary.dags_fixed == 1
+
+
+def test_dag_still_broken_error_both_sides():
+    a = _err_dag("d")
+    # Construct a fresh RenderedDag rather than mutating post-construction (model_validator
+    # rejects status="error" with tasks/attrs; similarly rejects inconsistent combos).
+    b = _err_dag("d").model_copy(
+        update={"error": RenderError(type="ImportError", message="boom v2", traceback="...")}
+    )
+    diff = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[])
+    [d] = diff.dags
+    assert d.pair_status == "still_broken"
+    assert diff.summary.dags_regressed == 0 and diff.summary.dags_fixed == 0
