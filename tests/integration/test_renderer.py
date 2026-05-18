@@ -163,3 +163,44 @@ def test_renderer_rejects_airflow_3_via_mock(tmp_path: Path, monkeypatch):
         assert v == "3.0.0"
     finally:
         airflow.__version__ = real
+
+
+def test_external_ref_with_timedelta_execution_delta(tmp_path: Path):
+    (tmp_path / "dags").mkdir()
+    (tmp_path / "dags" / "with_delta.py").write_text(
+        (FIXTURES_ROOT / "dags_sensors" / "with_delta.py").read_text()
+    )
+    bag = _run_renderer(tmp_path)
+    [dag] = bag.dags
+    [task] = dag.tasks
+    assert task.external_ref is not None
+    assert task.external_ref.kind == "external_task_sensor"
+    assert task.external_ref.external_dag_id == "some_upstream"
+    assert task.external_ref.external_task_id == "finalize"
+    assert task.external_ref.execution_delta_seconds == 3600
+    assert task.external_ref.execution_date_fn_present is False
+
+
+def test_external_ref_with_execution_date_fn(tmp_path: Path):
+    (tmp_path / "dags").mkdir()
+    (tmp_path / "dags" / "with_fn.py").write_text(
+        (FIXTURES_ROOT / "dags_sensors" / "with_fn.py").read_text()
+    )
+    bag = _run_renderer(tmp_path)
+    [dag] = bag.dags
+    [task] = dag.tasks
+    assert task.external_ref is not None
+    assert task.external_ref.execution_delta_seconds is None
+    assert task.external_ref.execution_date_fn_present is True
+
+
+def test_external_ref_user_subclass_via_mro(tmp_path: Path):
+    (tmp_path / "dags").mkdir()
+    (tmp_path / "dags" / "subclass.py").write_text(
+        (FIXTURES_ROOT / "dags_sensors" / "subclass.py").read_text()
+    )
+    bag = _run_renderer(tmp_path)
+    [dag] = bag.dags
+    [task] = dag.tasks
+    assert task.external_ref is not None
+    assert task.external_ref.external_dag_id == "some_upstream"

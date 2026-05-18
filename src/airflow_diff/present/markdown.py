@@ -5,7 +5,7 @@ Mermaid blocks natively, so the diff graph ships as plain markdown.
 """
 from __future__ import annotations
 
-from airflow_diff.schema import DagDiff, DiffDocument, FieldDiff, TaskDiff
+from airflow_diff.schema import DagDiff, DiffDocument, FieldDiff, SensorMismatch, TaskDiff
 
 MAX_TASKS_FOR_GRAPH = 50  # honored from config in orchestrator; constant here for unit-test simplicity
 GITHUB_COMMENT_CHAR_LIMIT = 65_536
@@ -37,13 +37,16 @@ def render_markdown(doc: DiffDocument, config=None) -> str:
 
 
 def _render_internal(doc: DiffDocument, max_tasks_for_graph: int = MAX_TASKS_FOR_GRAPH) -> str:
-    if not doc.dags and not doc.render_errors:
+    if not doc.dags and not doc.render_errors and not doc.sensor_mismatches:
         return "## airflow-diff\n\nNo DAG differences detected.\n"
 
     parts: list[str] = []
     parts.append(_header(doc))
     if doc.render_errors or any(d.pair_status != "ok" for d in doc.dags):
         parts.append(_warning_banner(doc))
+
+    if doc.sensor_mismatches:
+        parts.append(_render_sensor_mismatches(doc.sensor_mismatches))
 
     touched = [d for d in doc.dags if d.classification == "touched"]
     added = [d for d in doc.dags if d.classification == "added"]
@@ -71,6 +74,9 @@ def _header(doc: DiffDocument) -> str:
     if s.dags_fixed: bits.append(f"{s.dags_fixed} fixed")
     if s.dags_incidentally_affected:
         bits.append(f"{s.dags_incidentally_affected} incidentally affected")
+    n_mismatch = len(doc.sensor_mismatches)
+    if n_mismatch:
+        bits.append(f"**{n_mismatch} cross-DAG mismatch{'es' if n_mismatch != 1 else ''}**")
     suffix = f" ({', '.join(bits)})" if bits else ""
     return f"{line}{suffix}\n\nBase: `{doc.base_sha[:8]}` → Head: `{doc.head_sha[:8]}`"
 
@@ -223,3 +229,68 @@ def _graph_summary_box(d: DagDiff) -> str:
         f"> _Graph omitted — DAG has more than {MAX_TASKS_FOR_GRAPH} tasks._\n"
         f"> Tasks: **{n_add} added**, **{n_mod} modified**, **{n_rem} removed**."
     )
+
+
+def _render_sensor_mismatches(mismatches: list[SensorMismatch]) -> str:
+    """Render the 'Cross-DAG sensor mismatches' section."""
+    n = len(mismatches)
+    plural = "configurations" if n != 1 else "configuration"
+    lines = [
+        f"## ⚠️ Cross-DAG sensor mismatches (PR-introduced)",
+        "",
+        f"This PR introduces {n} `ExternalTaskSensor` {plural} that may not align "
+        f"with their upstream targets at runtime.",
+        "",
+        "| Sensor | Target | Issue |",
+        "|---|---|---|",
+    ]
+    for m in mismatches:
+        target_label = m.target_task_id or ",".join(m.target_task_ids or [])
+        lines.append(
+            f"| `{m.sensor_dag_id}.{m.sensor_task_id}` "
+            f"| `{m.target_dag_id}.{target_label}` "
+            f"| {_mismatch_issue_summary(m)} |"
+        )
+    lines.append("")
+    lines.append("<details><summary>Details</summary>")
+    lines.append("")
+    for m in mismatches:
+        lines.extend(_mismatch_detail_block(m))
+        lines.append("")
+    lines.append("</details>")
+    return "\n".join(lines) + "\n"
+
+
+def _mismatch_issue_summary(m: SensorMismatch) -> str:
+    if m.reason == "missing_execution_delta":
+        return (
+            f"Missing `execution_delta` "
+            f"(schedules: `{m.sensor_schedule or '?'}` vs `{m.target_schedule or '?'}`)"
+        )
+    if m.reason == "incorrect_execution_delta":
+        return (
+            f"Likely incorrect `execution_delta={m.actual_delta_seconds}s` "
+            f"(expected `{m.expected_delta_seconds}s`)"
+        )
+    if m.reason == "dangling_target":
+        return "Target not in head DAG bag"
+    return m.reason  # defensive fallthrough
+
+
+def _mismatch_detail_block(m: SensorMismatch) -> list[str]:
+    target_label = m.target_task_id or ",".join(m.target_task_ids or [])
+    out = [
+        f"**`{m.sensor_dag_id}.{m.sensor_task_id}` → `{m.target_dag_id}.{target_label}`**",
+        f"- Sensor DAG schedule: `{m.sensor_schedule or 'unknown'}`",
+        f"- Target DAG schedule: `{m.target_schedule or 'unknown'}`",
+    ]
+    if m.reason != "dangling_target":
+        delta_str = f"`{m.actual_delta_seconds}s`" if m.actual_delta_seconds is not None else "not set"
+        out.append(f"- `execution_delta`: {delta_str}")
+    if m.reason == "incorrect_execution_delta":
+        out.append(f"- Expected `execution_delta`: `{m.expected_delta_seconds}s`")
+    if m.reason == "dangling_target":
+        out.append("- Target not found in head DAG bag.")
+    if m.notes:
+        out.append(f"- Notes: {m.notes}")
+    return out

@@ -14,6 +14,7 @@ from pathlib import Path
 from airflow_diff.config import Config
 from airflow_diff.diff import compute_diff
 from airflow_diff.schema import DiffDocument, RenderedDagBag
+from airflow_diff.validators.cross_dag import validate as _validate_cross_dag
 from airflow_diff.venv import venv_for
 from airflow_diff.worktree import (
     ensure_sha_present, resolve_sha, worktree_for,
@@ -101,4 +102,6 @@ def run_diff(repo_root: Path, base_ref: str, head_ref: str, config: Config) -> D
             fixtures_head if fixtures_head.exists() else None,
         )
 
-    return compute_diff(rendered_base, rendered_head, touched_files=touched)
+    diff = compute_diff(rendered_base, rendered_head, touched_files=touched)
+    diff.sensor_mismatches = _validate_cross_dag(rendered_base, rendered_head, config)
+    return diff

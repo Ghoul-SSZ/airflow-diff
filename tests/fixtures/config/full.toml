@@ -6,3 +6,4 @@ excluded_dag_ids = ["sandbox_*"]
 synthetic_logical_date = "2024-06-01T00:00:00+00:00"
 render_timeout_seconds = 600
 max_tasks_for_graph = 100
+fail_on_sensor_mismatch = true

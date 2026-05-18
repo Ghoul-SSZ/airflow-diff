@@ -12,6 +12,7 @@ from airflow_diff.schema import (
     DiffDocument,
     DiffSummary,
     EdgeDiff,
+    ExternalTaskRef,
     FieldDiff,
     ProvenanceEntry,
     RenderError,
@@ -19,6 +20,7 @@ from airflow_diff.schema import (
     RenderedDagBag,
     RenderedField,
     RenderedTask,
+    SensorMismatch,
     TaskDiff,
 )
 
@@ -162,3 +164,130 @@ def test_diff_document_round_trip():
         render_errors=[],
     )
     assert DiffDocument.model_validate_json(doc.model_dump_json()) == doc
+
+
+def test_external_task_ref_minimum_round_trip():
+    ref = ExternalTaskRef(
+        kind="external_task_sensor",
+        external_dag_id="upstream",
+    )
+    assert ExternalTaskRef.model_validate_json(ref.model_dump_json()) == ref
+
+
+def test_external_task_ref_full_round_trip():
+    ref = ExternalTaskRef(
+        kind="external_task_sensor",
+        external_dag_id="upstream",
+        external_task_id="finalize",
+        execution_delta_seconds=3600,
+        execution_date_fn_present=True,
+    )
+    assert ExternalTaskRef.model_validate_json(ref.model_dump_json()) == ref
+
+
+def test_external_task_ref_with_task_ids_list():
+    ref = ExternalTaskRef(
+        kind="external_task_sensor",
+        external_dag_id="upstream",
+        external_task_ids=["t1", "t2"],
+    )
+    assert ExternalTaskRef.model_validate_json(ref.model_dump_json()) == ref
+
+
+def test_external_task_ref_rejects_unknown_kind():
+    with pytest.raises(ValidationError):
+        ExternalTaskRef(kind="trigger_dag_run", external_dag_id="x")
+
+
+def test_rendered_task_external_ref_defaults_to_none():
+    task = RenderedTask(task_id="t", operator="x.Op", task_group=None,
+                        upstream=[], downstream=[], fields={})
+    assert task.external_ref is None
+
+
+def test_sensor_mismatch_round_trip():
+    m = SensorMismatch(
+        sensor_dag_id="d", sensor_task_id="t",
+        target_dag_id="u", target_task_id="x",
+        reason="missing_execution_delta",
+        sensor_schedule="@hourly", target_schedule="@daily",
+    )
+    assert SensorMismatch.model_validate_json(m.model_dump_json()) == m
+
+
+def test_sensor_mismatch_rejects_unknown_reason():
+    with pytest.raises(ValidationError):
+        SensorMismatch(
+            sensor_dag_id="d", sensor_task_id="t",
+            target_dag_id="u", reason="bogus",
+        )
+
+
+def test_external_task_ref_rejects_multiple_targets():
+    with pytest.raises(ValidationError, match="At most one of"):
+        ExternalTaskRef(
+            kind="external_task_sensor",
+            external_dag_id="upstream",
+            external_task_id="a",
+            external_task_ids=["b"],
+        )
+
+
+def test_external_task_ref_allows_zero_targets():
+    # Setting neither target is valid — means "wait for the whole DAG"
+    ref = ExternalTaskRef(kind="external_task_sensor", external_dag_id="upstream")
+    assert ref.external_task_id is None
+    assert ref.external_task_ids is None
+
+
+def test_sensor_mismatch_rejects_incorrect_delta_without_required_fields():
+    with pytest.raises(ValidationError, match="expected_delta_seconds and actual_delta_seconds"):
+        SensorMismatch(
+            sensor_dag_id="d", sensor_task_id="t",
+            target_dag_id="u", target_task_id="x",
+            reason="incorrect_execution_delta",
+            # expected_delta_seconds and actual_delta_seconds intentionally missing
+        )
+
+
+def test_sensor_mismatch_incorrect_delta_with_required_fields_ok():
+    m = SensorMismatch(
+        sensor_dag_id="d", sensor_task_id="t",
+        target_dag_id="u", target_task_id="x",
+        reason="incorrect_execution_delta",
+        expected_delta_seconds=43200,
+        actual_delta_seconds=3600,
+    )
+    assert m.reason == "incorrect_execution_delta"
+
+
+def test_sensor_mismatch_notes_max_length_enforced():
+    with pytest.raises(ValidationError):
+        SensorMismatch(
+            sensor_dag_id="d", sensor_task_id="t",
+            target_dag_id="u", reason="missing_execution_delta",
+            notes="x" * 501,
+        )
+
+
+def test_diff_document_sensor_mismatches_default_empty():
+    doc = DiffDocument(
+        schema_version=SCHEMA_VERSION,
+        base_sha="a", head_sha="b",
+        summary=DiffSummary(), dags=[], render_errors=[],
+    )
+    assert doc.sensor_mismatches == []
+
+
+def test_schema_version_is_2():
+    assert SCHEMA_VERSION == 2
+
+
+def test_rendered_dag_bag_rejects_v1_payload():
+    # An explicit v1 schema_version literal must fail under v2.
+    payload = (
+        '{"schema_version": 1, "commit_sha": "x", "airflow_version": "2.10.3", '
+        '"rendered_at": "2026-05-17T00:00:00+00:00", "dags": []}'
+    )
+    with pytest.raises(ValidationError):
+        RenderedDagBag.model_validate_json(payload)

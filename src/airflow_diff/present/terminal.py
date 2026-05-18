@@ -1,7 +1,7 @@
 """ANSI-colored text presenter."""
 from __future__ import annotations
 
-from airflow_diff.schema import DiffDocument, DagDiff, FieldDiff, TaskDiff
+from airflow_diff.schema import DiffDocument, DagDiff, FieldDiff, SensorMismatch, TaskDiff
 
 GREEN = "\033[32m"
 RED = "\033[31m"
@@ -11,7 +11,7 @@ RESET = "\033[0m"
 
 
 def render_terminal(doc: DiffDocument, config=None) -> str:
-    if not doc.dags and not doc.render_errors:
+    if not doc.dags and not doc.render_errors and not doc.sensor_mismatches:
         return f"{BOLD}airflow-diff:{RESET} no DAG differences detected.\n"
     lines: list[str] = []
     s = doc.summary
@@ -23,6 +23,9 @@ def render_terminal(doc: DiffDocument, config=None) -> str:
     if s.dags_fixed:
         lines.append(f"  {GREEN}{s.dags_fixed} fixed{RESET}")
     lines.append("")
+    if doc.sensor_mismatches:
+        lines.extend(_render_sensor_mismatches(doc.sensor_mismatches))
+        lines.append("")
     for d in doc.dags:
         lines.extend(_render_dag(d))
     return "\n".join(lines) + "\n"
@@ -54,4 +57,32 @@ def _render_task(td: TaskDiff) -> list[str]:
         sign = "+" if ed.change_type == "added" else "-"
         color = GREEN if ed.change_type == "added" else RED
         out.append(f"      {color}{sign} {ed.direction} edge: {td.task_id} -> {ed.related_task_id}{RESET}")
+    return out
+
+
+_REASON_COLOR = {
+    "missing_execution_delta": YELLOW,
+    "dangling_target": YELLOW,
+    "incorrect_execution_delta": RED,
+}
+
+
+def _render_sensor_mismatches(mismatches: list[SensorMismatch]) -> list[str]:
+    out = [f"{BOLD}Cross-DAG sensor mismatches:{RESET}"]
+    for m in mismatches:
+        color = _REASON_COLOR.get(m.reason, YELLOW)
+        target_label = m.target_task_id or ",".join(m.target_task_ids or [])
+        out.append(
+            f"  {color}{m.sensor_dag_id}.{m.sensor_task_id} → "
+            f"{m.target_dag_id}.{target_label} [{m.reason}]{RESET}"
+        )
+        out.append(f"      sensor schedule: {m.sensor_schedule or 'unknown'}")
+        out.append(f"      target schedule: {m.target_schedule or 'unknown'}")
+        if m.reason == "incorrect_execution_delta":
+            out.append(
+                f"      execution_delta: actual={m.actual_delta_seconds}s, "
+                f"expected={m.expected_delta_seconds}s"
+            )
+        if m.notes:
+            out.append(f"      notes: {m.notes}")
     return out

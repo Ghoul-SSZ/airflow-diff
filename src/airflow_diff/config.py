@@ -31,6 +31,7 @@ class Config(BaseModel):
     )
     render_timeout_seconds: int = 300
     max_tasks_for_graph: int = 50
+    fail_on_sensor_mismatch: bool = False
 
     @field_validator("synthetic_logical_date", mode="before")
     @classmethod
