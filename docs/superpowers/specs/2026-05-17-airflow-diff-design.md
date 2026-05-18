@@ -125,7 +125,7 @@ Argparse entry point. Subcommands:
 
 ### `airflow_diff.orchestrator`
 
-Public: `run_diff(ref_a, ref_b, config) -> DiffDocument`. Resolves SHAs, calls worktree manager twice, calls venv manager twice, spawns renderer subprocesses in parallel, reads their JSON, hands off to diff engine, returns diff document.
+Public: `run_diff(repo_root, ref_a, ref_b, config) -> DiffDocument`. `repo_root` is an explicit `Path` rather than implicit cwd so the CLI's `--repo` flag and the GitHub Action's `$GITHUB_WORKSPACE` both flow through cleanly. Resolves SHAs, calls worktree manager twice, calls venv manager twice, spawns renderer subprocesses in parallel, reads their JSON, hands off to diff engine, returns diff document.
 
 ### `airflow_diff.worktree`
 
