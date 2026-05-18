@@ -1,0 +1,7 @@
+variables:
+  bucket: "prod-bucket"
+  region: "us-east-1"
+connections:
+  warehouse:
+    host: "wh.example.com"
+    schema: "analytics"
