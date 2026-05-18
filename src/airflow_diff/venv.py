@@ -86,5 +86,15 @@ def venv_for(worktree_path: Path, *, root: Path = DEFAULT_VENV_ROOT) -> Path:
     if res.returncode != 0:
         raise VenvError(f"uv pip install failed: {res.stderr.strip()}")
 
+    # Always ensure airflow_diff's own runtime deps are present so the renderer
+    # subprocess can import airflow_diff.schema (injected via PYTHONPATH).
+    res2 = _run([
+        "uv", "pip", "install",
+        "--python", str(python),
+        "pydantic>=2.5", "PyYAML>=6.0",
+    ])
+    if res2.returncode != 0:
+        raise VenvError(f"uv pip install (runtime deps) failed: {res2.stderr.strip()}")
+
     _mark_ready_for_test(venv_dir)  # in real runs this still just touches the marker
     return python

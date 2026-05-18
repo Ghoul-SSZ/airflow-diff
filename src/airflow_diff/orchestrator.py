@@ -7,6 +7,7 @@ DiffDocument. The parent process never imports Airflow.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -47,7 +48,16 @@ def _spawn_renderer(python: Path, worktree: Path, sha: str, config: Config,
     ]
     if fixtures_yaml is not None:
         args.extend(["--fixtures", str(fixtures_yaml)])
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    # Inject our package onto PYTHONPATH so the renderer can import airflow_diff.schema
+    # even when running inside a venv that only has the user's Airflow installed.
+    _pkg_src = str(Path(__file__).parent.parent)  # …/src/
+    _existing = os.environ.get("PYTHONPATH", "")
+    _pythonpath = f"{_pkg_src}:{_existing}" if _existing else _pkg_src
+    env = {**os.environ, "PYTHONPATH": _pythonpath}
+
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            env=env)
     out, err = proc.communicate(timeout=config.render_timeout_seconds)
     if proc.returncode != 0:
         raise OrchestratorError(
