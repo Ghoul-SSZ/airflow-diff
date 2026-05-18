@@ -1,0 +1,9 @@
+# serializer version: 1
+# name: test_empty_diff_renders
+  '''
+  ## airflow-diff
+  
+  No DAG differences detected.
+  
+  '''
+# ---
