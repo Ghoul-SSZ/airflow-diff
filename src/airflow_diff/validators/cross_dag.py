@@ -186,3 +186,14 @@ def _evaluate_sensor(
 
     # Step 6: opaque-schedule fallthrough — delta is present, can't verify, skip silently
     return None
+
+
+def validate(
+    base_bag: RenderedDagBag,
+    head_bag: RenderedDagBag,
+    config: Config,
+) -> list[SensorMismatch]:
+    """Returns mismatches present in head that were NOT present in base."""
+    base_keys = {_mismatch_key(m) for m in _mismatches_for_bag(base_bag, config)}
+    head = _mismatches_for_bag(head_bag, config)
+    return [m for m in head if _mismatch_key(m) not in base_keys]

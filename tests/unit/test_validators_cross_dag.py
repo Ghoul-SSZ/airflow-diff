@@ -299,3 +299,54 @@ def test_evaluator_exception_swallowed(monkeypatch):
     ])
     # Should not raise; should return empty list.
     assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []
+
+
+# ===== validate() tests (Task 11) =====
+
+from airflow_diff.validators.cross_dag import validate
+
+
+def _bag_with_sensor(sensor_dag_schedule: str = "@hourly",
+                     target_schedule: str = "@daily") -> RenderedDagBag:
+    sensor_dag = _ok_dag("downstream", schedule=sensor_dag_schedule, tasks=[
+        _sensor_task("wait", external_dag_id="upstream", external_task_id="x"),
+    ])
+    upstream = _ok_dag("upstream", schedule=target_schedule, tasks=[
+        RenderedTask(task_id="x", operator="x.Op", task_group=None,
+                     upstream=[], downstream=[], fields={}),
+    ])
+    return _bag(sensor_dag, upstream)
+
+
+def test_validate_pr_introduced_mismatch_emitted():
+    # Base: schedules aligned. Head: schedules misaligned.
+    base = _bag_with_sensor(sensor_dag_schedule="@daily", target_schedule="@daily")
+    head = _bag_with_sensor(sensor_dag_schedule="@hourly", target_schedule="@daily")
+    result = validate(base, head, Config())
+    assert len(result) == 1
+    assert result[0].reason == "missing_execution_delta"
+
+
+def test_validate_pre_existing_mismatch_silenced():
+    # Both base and head have the same mismatch → silenced.
+    base = _bag_with_sensor()
+    head = _bag_with_sensor()
+    assert validate(base, head, Config()) == []
+
+
+def test_validate_same_pair_different_reason_silenced():
+    # Base: missing delta. Head: wrong delta (key excludes reason → silenced).
+    base = _bag_with_sensor()
+    head_sensor = _ok_dag("downstream", schedule="@hourly", tasks=[
+        _sensor_task("wait", external_dag_id="upstream", external_task_id="x",
+                     execution_delta_seconds=999),
+    ])
+    head_upstream = _ok_dag("upstream", schedule="@daily", tasks=[
+        RenderedTask(task_id="x", operator="x.Op", task_group=None,
+                     upstream=[], downstream=[], fields={}),
+    ])
+    head = _bag(head_sensor, head_upstream)
+    # Sanity: head alone would report.
+    assert len(_mismatches_for_bag(head, Config())) == 1
+    # But because the (sensor, target) pair was already broken at base, silenced.
+    assert validate(base, head, Config()) == []
