@@ -12,13 +12,13 @@ pytestmark = pytest.mark.integration
 FIXTURES_ROOT = Path(__file__).parent.parent / "fixtures"
 
 
-def _run_renderer(worktree: Path) -> RenderedDagBag:
+def _run_renderer(worktree: Path, config: dict | None = None) -> RenderedDagBag:
     """Invoke the renderer as a subprocess with the current Python interpreter."""
     res = subprocess.run(
         [sys.executable, "-m", "airflow_diff.renderer",
          "--worktree", str(worktree),
          "--commit-sha", "test_sha",
-         "--config", "{}"],
+         "--config", json.dumps(config or {})],
         capture_output=True, text=True, check=False,
     )
     if res.returncode != 0:
@@ -204,3 +204,63 @@ def test_external_ref_user_subclass_via_mro(tmp_path: Path):
     [task] = dag.tasks
     assert task.external_ref is not None
     assert task.external_ref.external_dag_id == "some_upstream"
+
+
+def _trivial_dag_text(dag_id: str) -> str:
+    return (
+        "from datetime import datetime\n"
+        "from airflow import DAG\n"
+        "from airflow.operators.bash import BashOperator\n"
+        "\n"
+        f"with DAG(dag_id={dag_id!r}, schedule='@daily', "
+        "start_date=datetime(2025, 1, 1), catchup=False) as dag:\n"
+        "    BashOperator(task_id='t', bash_command='echo x')\n"
+    )
+
+
+def test_excluded_files_skips_matching_paths(tmp_path: Path):
+    dags = tmp_path / "dags"
+    dags.mkdir()
+    (dags / "keep.py").write_text(_trivial_dag_text("keep"))
+    (dags / "legacy").mkdir()
+    (dags / "legacy" / "old.py").write_text(_trivial_dag_text("legacy_old"))
+    (dags / "legacy" / "old2.py").write_text(_trivial_dag_text("legacy_old2"))
+
+    bag = _run_renderer(tmp_path, {"excluded_files": ["legacy/*"]})
+    assert {d.dag_id for d in bag.dags} == {"keep"}
+
+
+def test_excluded_dag_ids_skips_matching_ids(tmp_path: Path):
+    dags = tmp_path / "dags"
+    dags.mkdir()
+    (dags / "good.py").write_text(_trivial_dag_text("good"))
+    (dags / "sandbox_a.py").write_text(_trivial_dag_text("sandbox_a"))
+    (dags / "sandbox_b.py").write_text(_trivial_dag_text("sandbox_b"))
+
+    bag = _run_renderer(tmp_path, {"excluded_dag_ids": ["sandbox_*"]})
+    assert {d.dag_id for d in bag.dags} == {"good"}
+
+
+def test_excluded_files_and_dag_ids_combined(tmp_path: Path):
+    dags = tmp_path / "dags"
+    dags.mkdir()
+    (dags / "keep.py").write_text(_trivial_dag_text("keep"))
+    (dags / "sandbox_x.py").write_text(_trivial_dag_text("sandbox_x"))
+    (dags / "experiments").mkdir()
+    (dags / "experiments" / "exp.py").write_text(_trivial_dag_text("exp"))
+
+    bag = _run_renderer(tmp_path, {
+        "excluded_files": ["experiments/*"],
+        "excluded_dag_ids": ["sandbox_*"],
+    })
+    assert {d.dag_id for d in bag.dags} == {"keep"}
+
+
+def test_excluded_empty_lists_render_everything(tmp_path: Path):
+    dags = tmp_path / "dags"
+    dags.mkdir()
+    (dags / "a.py").write_text(_trivial_dag_text("a"))
+    (dags / "b.py").write_text(_trivial_dag_text("b"))
+
+    bag = _run_renderer(tmp_path, {"excluded_files": [], "excluded_dag_ids": []})
+    assert {d.dag_id for d in bag.dags} == {"a", "b"}

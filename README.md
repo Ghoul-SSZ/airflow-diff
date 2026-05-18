@@ -16,12 +16,17 @@ DAGs. `airflow-diff` surfaces all of that at PR time.
 
 ## Install
 
+> **Pre-1.0:** `airflow-diff` is not yet published to PyPI and the GitHub
+> Action has no released tag. The install snippets and Action `uses:` line
+> below describe the intended invocations once `0.1.0` is published; until
+> then, install from source (`pip install git+https://github.com/Ghoul-SSZ/airflow-diff`).
+
 ```bash
 pip install airflow-diff
 ```
 
-Requires Python 3.10+ and `uv`, `git`, and `gh` on PATH for the CLI and Action
-respectively.
+Requires Python 3.10+. The CLI needs `uv` and `git` on PATH; the GitHub Action
+additionally needs `gh` (used by the wrapper script to post PR comments).
 
 ## CLI usage
 
@@ -39,19 +44,29 @@ airflow-diff diff <base-sha> <head-sha> --json-out diff.json
 airflow-diff report diff.json --format html --out report.html
 ```
 
-Exit codes: `0` for no regressions, `1` when the PR introduces a DAG-level
+Exit codes: `0` for no regressions; `1` when the PR introduces a DAG-level
 regression (a DAG that imported cleanly at base now fails at head, or an added
-DAG fails to import).
+DAG fails to import). Also `1` for PR-introduced cross-DAG sensor mismatches
+when `fail_on_sensor_mismatch = true` is set in `.airflow-diff.toml` (see
+[Cross-DAG sensor validation](#cross-dag-sensor-validation) below).
 
 ## GitHub Action usage
+
+The Action lives at `action/action.yml`, so reference it with the subdirectory
+suffix:
 
 ```yaml
 - uses: actions/checkout@v4
   with: { fetch-depth: 0 }   # required so the base SHA is reachable
-- uses: airflow-diff/airflow-diff@v0
+- uses: Ghoul-SSZ/airflow-diff/action@v0.1.0
   with:
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+> The `v0.1.0` tag does not exist yet. Pin to a specific commit SHA
+> (`Ghoul-SSZ/airflow-diff/action@<sha>`) until a release is cut. The Action's
+> internal `pip install airflow-diff==…` step will also fail until the
+> package is published to PyPI.
 
 The Action refuses to run on PRs from forks (it imports arbitrary Python from
 both commits, and that is not safe to run on untrusted code).
@@ -64,12 +79,20 @@ Optional `.airflow-diff.toml` at repo root:
 dags_folder = "dags"
 plugins_folder = "plugins"
 fixtures_path = ".airflow-diff/fixtures.yaml"
-excluded_files = []
-excluded_dag_ids = []
+excluded_files = []           # fnmatch patterns, relative to dags_folder
+excluded_dag_ids = []         # fnmatch patterns matched against dag_id
 synthetic_logical_date = "2025-01-01T00:00:00+00:00"
 render_timeout_seconds = 300
 max_tasks_for_graph = 50
+fail_on_sensor_mismatch = false  # exit 1 on PR-introduced sensor mismatches
 ```
+
+`excluded_files` and `excluded_dag_ids` both use `fnmatch`-style shell glob
+patterns (`*`, `?`, `[abc]`). `excluded_files` patterns are matched against the
+path relative to `dags_folder` (e.g. `"legacy/*"` skips anything under
+`dags/legacy/`). `excluded_dag_ids` patterns are matched against `dag_id` (e.g.
+`"sandbox_*"`). Excluded entries are skipped at the renderer level — they never
+appear in the diff or in sensor-mismatch detection.
 
 Optional `.airflow-diff/fixtures.yaml` to provide real Variables/Connections
 that override the synthetic `<VAR:...>` / `<CONN:...>` stubs:
@@ -82,6 +105,32 @@ connections:
     host: "wh.example.com"
     schema: "analytics"
 ```
+
+## Cross-DAG sensor validation
+
+When a PR introduces an `ExternalTaskSensor` whose target DAG runs on a
+different schedule, the sensor must set either `execution_delta` (a
+`timedelta`) or `execution_date_fn` (a callable) so it can align with the
+upstream's logical date. Forgetting this is a classic "looked fine in code
+review, hangs forever in prod" bug.
+
+`airflow-diff` detects three flavors of PR-introduced mismatch and reports
+them above the per-DAG details in the PR comment:
+
+- **`missing_execution_delta`** — schedules differ; sensor has neither
+  `execution_delta` nor `execution_date_fn`.
+- **`incorrect_execution_delta`** — `execution_delta` is a literal `timedelta`
+  but doesn't actually align with the target's cron schedule (verified via
+  `croniter` at the synthetic logical date).
+- **`dangling_target`** — sensor references a `(dag_id, task_id)` that doesn't
+  exist in the head DAG bag.
+
+Only mismatches **introduced by the PR** are reported. A pair already broken
+at the base commit is silenced.
+
+By default these are surfaced as warnings in the PR comment and the CLI still
+exits `0`. Set `fail_on_sensor_mismatch = true` in `.airflow-diff.toml` to
+have CI exit `1` on any PR-introduced mismatch.
 
 ## Limitations
 
