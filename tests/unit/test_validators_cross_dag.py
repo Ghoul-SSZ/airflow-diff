@@ -280,3 +280,22 @@ def test_correct_delta_for_offset_schedules_no_mismatch():
                      upstream=[], downstream=[], fields={}),
     ])
     assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []
+
+
+def test_evaluator_exception_swallowed(monkeypatch):
+    from airflow_diff.validators import cross_dag as mod
+
+    def boom(*a, **kw):
+        raise RuntimeError("intentional test failure")
+
+    monkeypatch.setattr(mod, "_evaluate_sensor", boom)
+
+    sensor_dag = _ok_dag("d", schedule="@hourly", tasks=[
+        _sensor_task("wait", external_dag_id="u", external_task_id="x"),
+    ])
+    upstream = _ok_dag("u", schedule="@daily", tasks=[
+        RenderedTask(task_id="x", operator="x.Op", task_group=None,
+                     upstream=[], downstream=[], fields={}),
+    ])
+    # Should not raise; should return empty list.
+    assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []

@@ -69,7 +69,11 @@ def _mismatches_for_bag(bag: RenderedDagBag, config: Config) -> list[SensorMisma
             ref = task.external_ref
             if ref is None:
                 continue
-            m = _evaluate_sensor(sensor_dag, task, ref, head_dags, config)
+            try:
+                m = _evaluate_sensor(sensor_dag, task, ref, head_dags, config)
+            except Exception:
+                # Per-sensor isolation: a validator bug must not crash the diff.
+                continue
             if m is not None:
                 out.append(m)
     return out
