@@ -30,3 +30,13 @@ def test_mermaid_block_in_output(snapshot):
     assert "```mermaid" in output
     assert "classDef added" in output
     assert "validate_data" in output
+
+
+def test_truncates_when_output_exceeds_limit(monkeypatch):
+    # Build a fake DiffDocument with enough DAGs that the rendered markdown
+    # exceeds the limit. Easier: monkeypatch the cap to something small.
+    from airflow_diff.present import markdown as mod
+    monkeypatch.setattr(mod, "GITHUB_COMMENT_CHAR_LIMIT", 200)
+    output = render_markdown(_load("single_dag_one_change.json"))
+    assert "Output truncated" in output
+    assert len(output) <= 200 + 500  # truncation suffix can push it slightly over

@@ -8,9 +8,31 @@ from __future__ import annotations
 from airflow_diff.schema import DagDiff, DiffDocument, FieldDiff, TaskDiff
 
 MAX_TASKS_FOR_GRAPH = 50  # honored from config in orchestrator; constant here for unit-test simplicity
+GITHUB_COMMENT_CHAR_LIMIT = 65_536
 
 
 def render_markdown(doc: DiffDocument) -> str:
+    full = _render_internal(doc)
+    if len(full) <= GITHUB_COMMENT_CHAR_LIMIT:
+        return full
+    # Truncate to ~90% of the limit, then append a footer linking to the artifact.
+    cutoff = int(GITHUB_COMMENT_CHAR_LIMIT * 0.9)
+    truncated = full[:cutoff]
+    # Avoid cutting in the middle of a code fence or details block:
+    last_safe_newline = truncated.rfind("\n\n")
+    if last_safe_newline > 0:
+        truncated = truncated[:last_safe_newline]
+    footer = (
+        "\n\n---\n\n"
+        "> ⚠️ **Output truncated** — the full diff exceeds GitHub's PR-comment "
+        f"character limit ({GITHUB_COMMENT_CHAR_LIMIT:,}).\n"
+        "> The complete HTML report has been uploaded as a workflow artifact "
+        "(see the run's Artifacts panel for `airflow-diff-report.html`).\n"
+    )
+    return truncated + footer
+
+
+def _render_internal(doc: DiffDocument) -> str:
     if not doc.dags and not doc.render_errors:
         return "## airflow-diff\n\nNo DAG differences detected.\n"
 
