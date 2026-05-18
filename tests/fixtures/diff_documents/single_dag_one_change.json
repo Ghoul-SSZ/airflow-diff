@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "base_sha": "abc1234",
+  "head_sha": "def5678",
+  "summary": {"dags_touched": 1, "dags_incidentally_affected": 0, "dags_added": 0, "dags_removed": 0, "dags_regressed": 0, "dags_fixed": 0},
+  "dags": [
+    {
+      "dag_id": "my_dag",
+      "classification": "touched",
+      "status_a": "ok",
+      "status_b": "ok",
+      "pair_status": "ok",
+      "source_file_before": "dags/my_dag.py",
+      "source_file_after": "dags/my_dag.py",
+      "attr_diffs": [],
+      "task_diffs": [
+        {
+          "task_id": "extract_data",
+          "change_type": "modified",
+          "field_diffs": [
+            {
+              "name": "bash_command",
+              "change_type": "modified",
+              "before": "aws s3 cp s3://<VAR:bucket>/2025-01-01 /tmp/in",
+              "after":  "aws s3 cp s3://<VAR:bucket_v2>/2025-01-01 /tmp/in",
+              "provenance_before": [{"source": "stub", "key": "var.value.bucket"}],
+              "provenance_after":  [{"source": "stub", "key": "var.value.bucket_v2"}]
+            }
+          ],
+          "edge_diffs": []
+        }
+      ]
+    }
+  ],
+  "render_errors": []
+}

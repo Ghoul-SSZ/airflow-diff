@@ -15,3 +15,8 @@ def test_empty_diff_renders(snapshot):
     doc = _load("empty.json")
     output = render_markdown(doc)
     assert output == snapshot
+
+
+def test_single_dag_one_change(snapshot):
+    output = render_markdown(_load("single_dag_one_change.json"))
+    assert output == snapshot
