@@ -227,3 +227,56 @@ def test_opaque_target_no_bridge_emits_missing_with_note():
     [m] = _mismatches_for_bag(_bag(sensor_dag, upstream), Config())
     assert m.reason == "missing_execution_delta"
     assert "opaque" in (m.notes or "").lower()
+
+
+def test_wrong_literal_delta_emits_incorrect_mismatch():
+    # sensor @hourly, target @daily, delta=1h.
+    # synthetic_logical_date = 2025-01-01T00:00:00+00:00 (midnight).
+    # target_logical = midnight - 1h = 2024-12-31 23:00, which is NOT a valid
+    # @daily logical date (only midnights are). Expected delta should be 0
+    # (midnight IS a valid @daily logical date, so most-recent is midnight itself).
+    sensor_dag = _ok_dag("d", schedule="@hourly", tasks=[
+        _sensor_task("wait", external_dag_id="u", external_task_id="x",
+                     execution_delta_seconds=3600),
+    ])
+    upstream = _ok_dag("u", schedule="@daily", tasks=[
+        RenderedTask(task_id="x", operator="x.Op", task_group=None,
+                     upstream=[], downstream=[], fields={}),
+    ])
+    [m] = _mismatches_for_bag(_bag(sensor_dag, upstream), Config())
+    assert m.reason == "incorrect_execution_delta"
+    assert m.actual_delta_seconds == 3600
+    assert m.expected_delta_seconds == 0
+
+
+def test_zero_delta_for_offset_schedules_is_incorrect():
+    # sensor = midnight daily, target = noon daily, delta = 0.
+    # target_logical = midnight - 0 = midnight, NOT a valid noon-only cron match.
+    # Expected delta = midnight - most-recent-noon-at-or-before-midnight
+    #                = midnight - 2024-12-31 12:00 = 12h = 43200s.
+    sensor_dag = _ok_dag("d", schedule="0 0 * * *", tasks=[
+        _sensor_task("wait", external_dag_id="u", external_task_id="x",
+                     execution_delta_seconds=0),
+    ])
+    upstream = _ok_dag("u", schedule="0 12 * * *", tasks=[
+        RenderedTask(task_id="x", operator="x.Op", task_group=None,
+                     upstream=[], downstream=[], fields={}),
+    ])
+    [m] = _mismatches_for_bag(_bag(sensor_dag, upstream), Config())
+    assert m.reason == "incorrect_execution_delta"
+    assert m.expected_delta_seconds == 43200
+    assert m.actual_delta_seconds == 0
+
+
+def test_correct_delta_for_offset_schedules_no_mismatch():
+    # Sensor @ midnight daily, target @ noon daily, delta = 12h → sensor_date - 12h
+    # = prior noon, which IS a valid "0 12 * * *" logical date. No mismatch.
+    sensor_dag = _ok_dag("d", schedule="0 0 * * *", tasks=[
+        _sensor_task("wait", external_dag_id="u", external_task_id="x",
+                     execution_delta_seconds=43200),
+    ])
+    upstream = _ok_dag("u", schedule="0 12 * * *", tasks=[
+        RenderedTask(task_id="x", operator="x.Op", task_group=None,
+                     upstream=[], downstream=[], fields={}),
+    ])
+    assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []

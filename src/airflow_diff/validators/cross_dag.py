@@ -9,7 +9,10 @@ Detects PR-introduced ExternalTaskSensor mismatches:
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any, Optional
+
+from croniter import croniter
 
 from airflow_diff.config import Config
 from airflow_diff.schema import (
@@ -150,4 +153,32 @@ def _evaluate_sensor(
             notes=notes,
         )
 
-    return None  # delta-math rule added next
+    # Step 5: literal-delta cron arithmetic
+    if target_norm is not None and sensor_norm is not None:
+        sensor_logical_date = config.synthetic_logical_date
+        target_logical_date = sensor_logical_date - timedelta(seconds=ref.execution_delta_seconds)
+        if croniter.match(target_norm, target_logical_date):
+            return None
+        # Compute expected delta: most recent valid logical date of target_norm at or
+        # before sensor_logical_date.
+        itr = croniter(target_norm, sensor_logical_date)
+        if croniter.match(target_norm, sensor_logical_date):
+            expected_prev = sensor_logical_date
+        else:
+            expected_prev = itr.get_prev(ret_type=type(sensor_logical_date))
+        expected_delta = int((sensor_logical_date - expected_prev).total_seconds())
+        return SensorMismatch(
+            sensor_dag_id=sensor_dag.dag_id,
+            sensor_task_id=sensor_task.task_id,
+            target_dag_id=target_dag.dag_id,
+            target_task_id=ref.external_task_id,
+            target_task_ids=ref.external_task_ids,
+            reason="incorrect_execution_delta",
+            sensor_schedule=_str(sensor_schedule),
+            target_schedule=_str(target_schedule),
+            expected_delta_seconds=expected_delta,
+            actual_delta_seconds=ref.execution_delta_seconds,
+        )
+
+    # Step 6: opaque-schedule fallthrough — delta is present, can't verify, skip silently
+    return None
