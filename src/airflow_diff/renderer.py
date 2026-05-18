@@ -296,6 +296,16 @@ def _render_dag(dag, synthetic_logical_date: str) -> "RenderedDag":
             external_ref = _extract_external_ref(task)
         except Exception:
             external_ref = None  # per-task isolation matches existing policy
+        if external_ref is not None:
+            # ExternalTaskSensor's cross-DAG kwargs are encoded in external_ref;
+            # drop them from `fields` to avoid producing duplicate diff entries
+            # (one as a SensorMismatch row, one as a per-field diff). The Jinja
+            # template loop also captures these because they're in
+            # ExternalTaskSensor.template_fields, so deduplication has to happen
+            # after both capture paths have run.
+            for _dup in ("external_dag_id", "external_task_id", "external_task_ids",
+                         "external_task_group_id", "execution_delta", "execution_date_fn"):
+                fields.pop(_dup, None)
         tasks_out.append(RenderedTask(
             task_id=task.task_id,
             operator=f"{type(task).__module__}.{type(task).__name__}",
