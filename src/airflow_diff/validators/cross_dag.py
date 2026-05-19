@@ -7,30 +7,35 @@ Detects PR-introduced ExternalTaskSensor mismatches:
   * incorrect_execution_delta — literal delta doesn't match cron arithmetic
   * dangling_target           — sensor target dag/task not in head bag
 """
+
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any
 
 from croniter import croniter
 
 from airflow_diff.config import Config
 from airflow_diff.schema import (
-    ExternalTaskRef, RenderedDag, RenderedDagBag, RenderedTask, SensorMismatch,
+    ExternalTaskRef,
+    RenderedDag,
+    RenderedDagBag,
+    RenderedTask,
+    SensorMismatch,
 )
 
 _PRESETS = {
-    "@yearly":   "0 0 1 1 *",
+    "@yearly": "0 0 1 1 *",
     "@annually": "0 0 1 1 *",
-    "@monthly":  "0 0 1 * *",
-    "@weekly":   "0 0 * * 0",
-    "@daily":    "0 0 * * *",
+    "@monthly": "0 0 1 * *",
+    "@weekly": "0 0 * * 0",
+    "@daily": "0 0 * * *",
     "@midnight": "0 0 * * *",
-    "@hourly":   "0 * * * *",
+    "@hourly": "0 * * * *",
 }
 
 
-def _normalize_schedule(schedule: Any) -> Optional[str]:
+def _normalize_schedule(schedule: Any) -> str | None:
     """Return a 5-field cron string if `schedule` is cron-parseable, else None.
 
     None means "opaque" — either truly None, a preset that has no cron equivalent
@@ -85,7 +90,7 @@ def _evaluate_sensor(
     ref: ExternalTaskRef,
     head_dags: dict[str, RenderedDag],
     config: Config,
-) -> Optional[SensorMismatch]:
+) -> SensorMismatch | None:
     # Step 1: dangling-target check
     target_dag = head_dags.get(ref.external_dag_id)
     if target_dag is None:
@@ -132,7 +137,7 @@ def _evaluate_sensor(
     if ref.execution_date_fn_present:
         return None
 
-    def _str(s: Any) -> Optional[str]:
+    def _str(s: Any) -> str | None:
         if s is None:
             return None
         return s if isinstance(s, str) else repr(s)
@@ -141,10 +146,7 @@ def _evaluate_sensor(
     if ref.execution_delta_seconds is None:
         notes = None
         if target_norm is None:
-            notes = (
-                "target schedule is opaque; cannot suggest a specific "
-                "execution_delta value"
-            )
+            notes = "target schedule is opaque; cannot suggest a specific execution_delta value"
         return SensorMismatch(
             sensor_dag_id=sensor_dag.dag_id,
             sensor_task_id=sensor_task.task_id,

@@ -1,7 +1,16 @@
 from datetime import datetime, timezone
 
 from airflow_diff.diff import compute_diff
-from airflow_diff.schema import RenderedDagBag, DiffDocument, SCHEMA_VERSION
+from airflow_diff.schema import (
+    SCHEMA_VERSION,
+    DiffDocument,
+    ProvenanceEntry,
+    RenderedDag,
+    RenderedDagBag,
+    RenderedField,
+    RenderedTask,
+    RenderError,
+)
 
 
 def _bag(sha: str, dags=()) -> RenderedDagBag:
@@ -24,20 +33,22 @@ def test_two_empty_bags_produce_empty_diff():
     assert diff.summary.dags_touched == 0
 
 
-from airflow_diff.schema import RenderedDag
-
-
-def _ok_dag(dag_id: str, source: str = None) -> RenderedDag:
+def _ok_dag(dag_id: str, source: str | None = None) -> RenderedDag:
     return RenderedDag(
-        dag_id=dag_id, status="ok",
+        dag_id=dag_id,
+        status="ok",
         source_file=source or f"dags/{dag_id}.py",
-        attrs={}, datasets={"inlets": [], "outlets": []},
-        task_groups=[], tasks=[],
+        attrs={},
+        datasets={"inlets": [], "outlets": []},
+        task_groups=[],
+        tasks=[],
     )
 
 
 def test_dag_added_in_head():
-    diff = compute_diff(_bag("a"), _bag("b", [_ok_dag("new_dag")]), touched_files=["dags/new_dag.py"])
+    diff = compute_diff(
+        _bag("a"), _bag("b", [_ok_dag("new_dag")]), touched_files=["dags/new_dag.py"]
+    )
     assert len(diff.dags) == 1
     d = diff.dags[0]
     assert d.dag_id == "new_dag"
@@ -65,12 +76,11 @@ def test_dag_unchanged_not_present_in_diff():
     assert diff.dags == []
 
 
-from airflow_diff.schema import RenderError
-
-
 def _err_dag(dag_id: str) -> RenderedDag:
     return RenderedDag(
-        dag_id=dag_id, status="error", source_file=f"dags/{dag_id}.py",
+        dag_id=dag_id,
+        status="error",
+        source_file=f"dags/{dag_id}.py",
         error=RenderError(type="ImportError", message="boom", traceback="..."),
     )
 
@@ -140,16 +150,15 @@ def test_attr_diff_schedule_changed():
 
 
 def test_attr_added_and_removed():
-    a = _ok_dag("d"); a.attrs = {"tags": ["x"]}
-    b = _ok_dag("d"); b.attrs = {"tags": ["x"], "description": "new"}
+    a = _ok_dag("d")
+    a.attrs = {"tags": ["x"]}
+    b = _ok_dag("d")
+    b.attrs = {"tags": ["x"], "description": "new"}
     diff = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[])
     [dd] = diff.dags
     names = {ad.name for ad in dd.attr_diffs}
     assert "description" in names
     assert "tags" not in names  # unchanged attrs must not appear
-
-
-from airflow_diff.schema import RenderedTask, RenderedField, ProvenanceEntry
 
 
 def _task(task_id, *, bash: str = "echo x", upstream=(), downstream=()) -> RenderedTask:
@@ -158,15 +167,20 @@ def _task(task_id, *, bash: str = "echo x", upstream=(), downstream=()) -> Rende
         operator="airflow.operators.bash.BashOperator",
         upstream=list(upstream),
         downstream=list(downstream),
-        fields={"bash_command": RenderedField(
-            rendered=bash, provenance=[ProvenanceEntry(source="literal")],
-        )},
+        fields={
+            "bash_command": RenderedField(
+                rendered=bash,
+                provenance=[ProvenanceEntry(source="literal")],
+            )
+        },
     )
 
 
 def test_task_added():
-    a = _ok_dag("d"); a.tasks = [_task("t1")]
-    b = _ok_dag("d"); b.tasks = [_task("t1"), _task("t2")]
+    a = _ok_dag("d")
+    a.tasks = [_task("t1")]
+    b = _ok_dag("d")
+    b.tasks = [_task("t1"), _task("t2")]
     [dd] = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[]).dags
     by_id = {td.task_id: td for td in dd.task_diffs}
     assert by_id["t2"].change_type == "added"
@@ -174,16 +188,20 @@ def test_task_added():
 
 
 def test_task_removed():
-    a = _ok_dag("d"); a.tasks = [_task("t1"), _task("t2")]
-    b = _ok_dag("d"); b.tasks = [_task("t1")]
+    a = _ok_dag("d")
+    a.tasks = [_task("t1"), _task("t2")]
+    b = _ok_dag("d")
+    b.tasks = [_task("t1")]
     [dd] = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[]).dags
     by_id = {td.task_id: td for td in dd.task_diffs}
     assert by_id["t2"].change_type == "removed"
 
 
 def test_task_field_modified():
-    a = _ok_dag("d"); a.tasks = [_task("t1", bash="echo old")]
-    b = _ok_dag("d"); b.tasks = [_task("t1", bash="echo new")]
+    a = _ok_dag("d")
+    a.tasks = [_task("t1", bash="echo old")]
+    b = _ok_dag("d")
+    b.tasks = [_task("t1", bash="echo new")]
     [dd] = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[]).dags
     [td] = dd.task_diffs
     assert td.change_type == "modified"
@@ -194,8 +212,10 @@ def test_task_field_modified():
 
 
 def test_task_operator_class_changed():
-    a = _ok_dag("d"); a.tasks = [_task("t1")]
-    b = _ok_dag("d"); b.tasks = [_task("t1")]
+    a = _ok_dag("d")
+    a.tasks = [_task("t1")]
+    b = _ok_dag("d")
+    b.tasks = [_task("t1")]
     b.tasks[0].operator = "airflow.operators.python.PythonOperator"
     [dd] = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[]).dags
     [td] = dd.task_diffs
@@ -205,15 +225,19 @@ def test_task_operator_class_changed():
 
 
 def test_edge_diff_upstream_added():
-    a = _ok_dag("d"); a.tasks = [_task("t1"), _task("t2")]
-    b = _ok_dag("d"); b.tasks = [_task("t1", downstream=["t2"]), _task("t2", upstream=["t1"])]
+    a = _ok_dag("d")
+    a.tasks = [_task("t1"), _task("t2")]
+    b = _ok_dag("d")
+    b.tasks = [_task("t1", downstream=["t2"]), _task("t2", upstream=["t1"])]
     [dd] = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[]).dags
     # The two tasks both changed (edges added):
     by_id = {td.task_id: td for td in dd.task_diffs}
     # t2 has an upstream edge added pointing at t1:
     t2_edges = by_id["t2"].edge_diffs
-    assert any(e.direction == "upstream" and e.change_type == "added"
-               and e.related_task_id == "t1" for e in t2_edges)
+    assert any(
+        e.direction == "upstream" and e.change_type == "added" and e.related_task_id == "t1"
+        for e in t2_edges
+    )
 
 
 def test_render_errors_populated_for_pair_status_transitions():
@@ -249,15 +273,20 @@ def test_render_error_marker_propagated_to_field_diff():
     a.tasks = [_task("t1", bash="echo ok")]
 
     b = _ok_dag("d")
-    b.tasks = [RenderedTask(
-        task_id="t1",
-        operator="airflow.operators.bash.BashOperator",
-        upstream=[], downstream=[],
-        fields={"bash_command": RenderedField(
-            rendered="<RENDER_ERROR: ValueError>",
-            provenance=[ProvenanceEntry(source="literal")],
-        )},
-    )]
+    b.tasks = [
+        RenderedTask(
+            task_id="t1",
+            operator="airflow.operators.bash.BashOperator",
+            upstream=[],
+            downstream=[],
+            fields={
+                "bash_command": RenderedField(
+                    rendered="<RENDER_ERROR: ValueError>",
+                    provenance=[ProvenanceEntry(source="literal")],
+                )
+            },
+        )
+    ]
 
     diff = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=[])
     [dd] = diff.dags

@@ -1,11 +1,20 @@
 from datetime import datetime, timezone
 
+from airflow_diff.config import Config
 from airflow_diff.schema import (
-    ExternalTaskRef, RenderedDag, RenderedDagBag, RenderedTask, SCHEMA_VERSION,
+    SCHEMA_VERSION,
+    ExternalTaskRef,
+    RenderedDag,
+    RenderedDagBag,
+    RenderedTask,
     SensorMismatch,
 )
-from airflow_diff.config import Config
-from airflow_diff.validators.cross_dag import _normalize_schedule, _mismatch_key, _mismatches_for_bag
+from airflow_diff.validators.cross_dag import (
+    _mismatch_key,
+    _mismatches_for_bag,
+    _normalize_schedule,
+    validate,
+)
 
 
 def test_normalize_passthrough_cron():
@@ -51,8 +60,10 @@ def test_normalize_opaque_returns_none():
 
 def test_mismatch_key_with_singular_task_id():
     m = SensorMismatch(
-        sensor_dag_id="d", sensor_task_id="t",
-        target_dag_id="u", target_task_id="x",
+        sensor_dag_id="d",
+        sensor_task_id="t",
+        target_dag_id="u",
+        target_task_id="x",
         reason="missing_execution_delta",
     )
     assert _mismatch_key(m) == ("d", "t", "u", ("id", "x"))
@@ -60,8 +71,10 @@ def test_mismatch_key_with_singular_task_id():
 
 def test_mismatch_key_with_task_ids_sorted():
     m = SensorMismatch(
-        sensor_dag_id="d", sensor_task_id="t",
-        target_dag_id="u", target_task_ids=["z", "a", "m"],
+        sensor_dag_id="d",
+        sensor_task_id="t",
+        target_dag_id="u",
+        target_task_ids=["z", "a", "m"],
         reason="dangling_target",
     )
     assert _mismatch_key(m) == ("d", "t", "u", ("ids", ("a", "m", "z")))
@@ -69,20 +82,26 @@ def test_mismatch_key_with_task_ids_sorted():
 
 def test_mismatch_key_ignores_reason():
     a = SensorMismatch(
-        sensor_dag_id="d", sensor_task_id="t",
-        target_dag_id="u", target_task_id="x",
+        sensor_dag_id="d",
+        sensor_task_id="t",
+        target_dag_id="u",
+        target_task_id="x",
         reason="missing_execution_delta",
     )
     b = SensorMismatch(
-        sensor_dag_id="d", sensor_task_id="t",
-        target_dag_id="u", target_task_id="x",
+        sensor_dag_id="d",
+        sensor_task_id="t",
+        target_dag_id="u",
+        target_task_id="x",
         reason="incorrect_execution_delta",
-        expected_delta_seconds=1, actual_delta_seconds=2,  # required by validator
+        expected_delta_seconds=1,
+        actual_delta_seconds=2,  # required by validator
     )
     assert _mismatch_key(a) == _mismatch_key(b)
 
 
 # ===== dangling_target tests (Task 6) =====
+
 
 def _bag(*dags: RenderedDag) -> RenderedDagBag:
     return RenderedDagBag(
@@ -94,15 +113,22 @@ def _bag(*dags: RenderedDag) -> RenderedDagBag:
     )
 
 
-def _sensor_task(task_id: str, *, external_dag_id: str,
-                 external_task_id: str | None = None,
-                 external_task_ids: list[str] | None = None,
-                 execution_delta_seconds: int | None = None,
-                 execution_date_fn_present: bool = False) -> RenderedTask:
+def _sensor_task(
+    task_id: str,
+    *,
+    external_dag_id: str,
+    external_task_id: str | None = None,
+    external_task_ids: list[str] | None = None,
+    execution_delta_seconds: int | None = None,
+    execution_date_fn_present: bool = False,
+) -> RenderedTask:
     return RenderedTask(
         task_id=task_id,
         operator="airflow.sensors.external_task.ExternalTaskSensor",
-        task_group=None, upstream=[], downstream=[], fields={},
+        task_group=None,
+        upstream=[],
+        downstream=[],
+        fields={},
         external_ref=ExternalTaskRef(
             kind="external_task_sensor",
             external_dag_id=external_dag_id,
@@ -116,16 +142,24 @@ def _sensor_task(task_id: str, *, external_dag_id: str,
 
 def _ok_dag(dag_id: str, *, schedule: str, tasks: list[RenderedTask]) -> RenderedDag:
     return RenderedDag(
-        dag_id=dag_id, status="ok", source_file=f"dags/{dag_id}.py",
-        attrs={"schedule": schedule}, datasets={"inlets": [], "outlets": []},
-        task_groups=[], tasks=tasks,
+        dag_id=dag_id,
+        status="ok",
+        source_file=f"dags/{dag_id}.py",
+        attrs={"schedule": schedule},
+        datasets={"inlets": [], "outlets": []},
+        task_groups=[],
+        tasks=tasks,
     )
 
 
 def test_dangling_target_dag_missing():
-    sensor_dag = _ok_dag("downstream", schedule="@daily", tasks=[
-        _sensor_task("wait", external_dag_id="missing", external_task_id="x"),
-    ])
+    sensor_dag = _ok_dag(
+        "downstream",
+        schedule="@daily",
+        tasks=[
+            _sensor_task("wait", external_dag_id="missing", external_task_id="x"),
+        ],
+    )
     mismatches = _mismatches_for_bag(_bag(sensor_dag), Config())
     assert len(mismatches) == 1
     [m] = mismatches
@@ -136,27 +170,56 @@ def test_dangling_target_dag_missing():
 
 
 def test_dangling_target_task_missing():
-    sensor_dag = _ok_dag("downstream", schedule="@daily", tasks=[
-        _sensor_task("wait", external_dag_id="upstream", external_task_id="not_a_real_task"),
-    ])
-    upstream_dag = _ok_dag("upstream", schedule="@daily", tasks=[
-        RenderedTask(task_id="finalize", operator="x.Op", task_group=None,
-                     upstream=[], downstream=[], fields={}),
-    ])
+    sensor_dag = _ok_dag(
+        "downstream",
+        schedule="@daily",
+        tasks=[
+            _sensor_task("wait", external_dag_id="upstream", external_task_id="not_a_real_task"),
+        ],
+    )
+    upstream_dag = _ok_dag(
+        "upstream",
+        schedule="@daily",
+        tasks=[
+            RenderedTask(
+                task_id="finalize",
+                operator="x.Op",
+                task_group=None,
+                upstream=[],
+                downstream=[],
+                fields={},
+            ),
+        ],
+    )
     [m] = _mismatches_for_bag(_bag(sensor_dag, upstream_dag), Config())
     assert m.reason == "dangling_target"
     assert m.target_task_id == "not_a_real_task"
 
 
 def test_dangling_target_one_of_task_ids_missing():
-    sensor_dag = _ok_dag("downstream", schedule="@daily", tasks=[
-        _sensor_task("wait", external_dag_id="upstream",
-                     external_task_ids=["finalize", "missing"]),
-    ])
-    upstream_dag = _ok_dag("upstream", schedule="@daily", tasks=[
-        RenderedTask(task_id="finalize", operator="x.Op", task_group=None,
-                     upstream=[], downstream=[], fields={}),
-    ])
+    sensor_dag = _ok_dag(
+        "downstream",
+        schedule="@daily",
+        tasks=[
+            _sensor_task(
+                "wait", external_dag_id="upstream", external_task_ids=["finalize", "missing"]
+            ),
+        ],
+    )
+    upstream_dag = _ok_dag(
+        "upstream",
+        schedule="@daily",
+        tasks=[
+            RenderedTask(
+                task_id="finalize",
+                operator="x.Op",
+                task_group=None,
+                upstream=[],
+                downstream=[],
+                fields={},
+            ),
+        ],
+    )
     [m] = _mismatches_for_bag(_bag(sensor_dag, upstream_dag), Config())
     assert m.reason == "dangling_target"
     assert m.target_task_ids == ["finalize", "missing"]
@@ -165,49 +228,87 @@ def test_dangling_target_one_of_task_ids_missing():
 
 # ===== schedule-equality + execution_date_fn tests (Task 7) =====
 
+
 def test_schedules_equal_no_mismatch():
-    sensor_dag = _ok_dag("d", schedule="@daily", tasks=[
-        _sensor_task("wait", external_dag_id="u", external_task_id="x"),
-    ])
-    upstream = _ok_dag("u", schedule="@daily", tasks=[
-        RenderedTask(task_id="x", operator="x.Op", task_group=None,
-                     upstream=[], downstream=[], fields={}),
-    ])
+    sensor_dag = _ok_dag(
+        "d",
+        schedule="@daily",
+        tasks=[
+            _sensor_task("wait", external_dag_id="u", external_task_id="x"),
+        ],
+    )
+    upstream = _ok_dag(
+        "u",
+        schedule="@daily",
+        tasks=[
+            RenderedTask(
+                task_id="x", operator="x.Op", task_group=None, upstream=[], downstream=[], fields={}
+            ),
+        ],
+    )
     assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []
 
 
 def test_schedules_equal_after_normalization():
     # "@midnight" normalizes to "0 0 * * *", same as "@daily"
-    sensor_dag = _ok_dag("d", schedule="@midnight", tasks=[
-        _sensor_task("wait", external_dag_id="u", external_task_id="x"),
-    ])
-    upstream = _ok_dag("u", schedule="@daily", tasks=[
-        RenderedTask(task_id="x", operator="x.Op", task_group=None,
-                     upstream=[], downstream=[], fields={}),
-    ])
+    sensor_dag = _ok_dag(
+        "d",
+        schedule="@midnight",
+        tasks=[
+            _sensor_task("wait", external_dag_id="u", external_task_id="x"),
+        ],
+    )
+    upstream = _ok_dag(
+        "u",
+        schedule="@daily",
+        tasks=[
+            RenderedTask(
+                task_id="x", operator="x.Op", task_group=None, upstream=[], downstream=[], fields={}
+            ),
+        ],
+    )
     assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []
 
 
 def test_schedules_differ_with_execution_date_fn_no_mismatch():
-    sensor_dag = _ok_dag("d", schedule="@hourly", tasks=[
-        _sensor_task("wait", external_dag_id="u", external_task_id="x",
-                     execution_date_fn_present=True),
-    ])
-    upstream = _ok_dag("u", schedule="@daily", tasks=[
-        RenderedTask(task_id="x", operator="x.Op", task_group=None,
-                     upstream=[], downstream=[], fields={}),
-    ])
+    sensor_dag = _ok_dag(
+        "d",
+        schedule="@hourly",
+        tasks=[
+            _sensor_task(
+                "wait", external_dag_id="u", external_task_id="x", execution_date_fn_present=True
+            ),
+        ],
+    )
+    upstream = _ok_dag(
+        "u",
+        schedule="@daily",
+        tasks=[
+            RenderedTask(
+                task_id="x", operator="x.Op", task_group=None, upstream=[], downstream=[], fields={}
+            ),
+        ],
+    )
     assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []
 
 
 def test_schedules_differ_no_bridge_emits_missing():
-    sensor_dag = _ok_dag("downstream", schedule="@hourly", tasks=[
-        _sensor_task("wait", external_dag_id="upstream", external_task_id="x"),
-    ])
-    upstream = _ok_dag("upstream", schedule="@daily", tasks=[
-        RenderedTask(task_id="x", operator="x.Op", task_group=None,
-                     upstream=[], downstream=[], fields={}),
-    ])
+    sensor_dag = _ok_dag(
+        "downstream",
+        schedule="@hourly",
+        tasks=[
+            _sensor_task("wait", external_dag_id="upstream", external_task_id="x"),
+        ],
+    )
+    upstream = _ok_dag(
+        "upstream",
+        schedule="@daily",
+        tasks=[
+            RenderedTask(
+                task_id="x", operator="x.Op", task_group=None, upstream=[], downstream=[], fields={}
+            ),
+        ],
+    )
     [m] = _mismatches_for_bag(_bag(sensor_dag, upstream), Config())
     assert m.reason == "missing_execution_delta"
     assert m.sensor_schedule == "@hourly"
@@ -216,14 +317,23 @@ def test_schedules_differ_no_bridge_emits_missing():
 
 
 def test_opaque_target_no_bridge_emits_missing_with_note():
-    sensor_dag = _ok_dag("downstream", schedule="@hourly", tasks=[
-        _sensor_task("wait", external_dag_id="upstream", external_task_id="x"),
-    ])
+    sensor_dag = _ok_dag(
+        "downstream",
+        schedule="@hourly",
+        tasks=[
+            _sensor_task("wait", external_dag_id="upstream", external_task_id="x"),
+        ],
+    )
     # Opaque schedule (dataset list serialized as JSON list, or any non-cron string)
-    upstream = _ok_dag("upstream", schedule="@once", tasks=[
-        RenderedTask(task_id="x", operator="x.Op", task_group=None,
-                     upstream=[], downstream=[], fields={}),
-    ])
+    upstream = _ok_dag(
+        "upstream",
+        schedule="@once",
+        tasks=[
+            RenderedTask(
+                task_id="x", operator="x.Op", task_group=None, upstream=[], downstream=[], fields={}
+            ),
+        ],
+    )
     [m] = _mismatches_for_bag(_bag(sensor_dag, upstream), Config())
     assert m.reason == "missing_execution_delta"
     assert "opaque" in (m.notes or "").lower()
@@ -235,14 +345,24 @@ def test_wrong_literal_delta_emits_incorrect_mismatch():
     # target_logical = midnight - 1h = 2024-12-31 23:00, which is NOT a valid
     # @daily logical date (only midnights are). Expected delta should be 0
     # (midnight IS a valid @daily logical date, so most-recent is midnight itself).
-    sensor_dag = _ok_dag("d", schedule="@hourly", tasks=[
-        _sensor_task("wait", external_dag_id="u", external_task_id="x",
-                     execution_delta_seconds=3600),
-    ])
-    upstream = _ok_dag("u", schedule="@daily", tasks=[
-        RenderedTask(task_id="x", operator="x.Op", task_group=None,
-                     upstream=[], downstream=[], fields={}),
-    ])
+    sensor_dag = _ok_dag(
+        "d",
+        schedule="@hourly",
+        tasks=[
+            _sensor_task(
+                "wait", external_dag_id="u", external_task_id="x", execution_delta_seconds=3600
+            ),
+        ],
+    )
+    upstream = _ok_dag(
+        "u",
+        schedule="@daily",
+        tasks=[
+            RenderedTask(
+                task_id="x", operator="x.Op", task_group=None, upstream=[], downstream=[], fields={}
+            ),
+        ],
+    )
     [m] = _mismatches_for_bag(_bag(sensor_dag, upstream), Config())
     assert m.reason == "incorrect_execution_delta"
     assert m.actual_delta_seconds == 3600
@@ -254,14 +374,24 @@ def test_zero_delta_for_offset_schedules_is_incorrect():
     # target_logical = midnight - 0 = midnight, NOT a valid noon-only cron match.
     # Expected delta = midnight - most-recent-noon-at-or-before-midnight
     #                = midnight - 2024-12-31 12:00 = 12h = 43200s.
-    sensor_dag = _ok_dag("d", schedule="0 0 * * *", tasks=[
-        _sensor_task("wait", external_dag_id="u", external_task_id="x",
-                     execution_delta_seconds=0),
-    ])
-    upstream = _ok_dag("u", schedule="0 12 * * *", tasks=[
-        RenderedTask(task_id="x", operator="x.Op", task_group=None,
-                     upstream=[], downstream=[], fields={}),
-    ])
+    sensor_dag = _ok_dag(
+        "d",
+        schedule="0 0 * * *",
+        tasks=[
+            _sensor_task(
+                "wait", external_dag_id="u", external_task_id="x", execution_delta_seconds=0
+            ),
+        ],
+    )
+    upstream = _ok_dag(
+        "u",
+        schedule="0 12 * * *",
+        tasks=[
+            RenderedTask(
+                task_id="x", operator="x.Op", task_group=None, upstream=[], downstream=[], fields={}
+            ),
+        ],
+    )
     [m] = _mismatches_for_bag(_bag(sensor_dag, upstream), Config())
     assert m.reason == "incorrect_execution_delta"
     assert m.expected_delta_seconds == 43200
@@ -271,14 +401,24 @@ def test_zero_delta_for_offset_schedules_is_incorrect():
 def test_correct_delta_for_offset_schedules_no_mismatch():
     # Sensor @ midnight daily, target @ noon daily, delta = 12h → sensor_date - 12h
     # = prior noon, which IS a valid "0 12 * * *" logical date. No mismatch.
-    sensor_dag = _ok_dag("d", schedule="0 0 * * *", tasks=[
-        _sensor_task("wait", external_dag_id="u", external_task_id="x",
-                     execution_delta_seconds=43200),
-    ])
-    upstream = _ok_dag("u", schedule="0 12 * * *", tasks=[
-        RenderedTask(task_id="x", operator="x.Op", task_group=None,
-                     upstream=[], downstream=[], fields={}),
-    ])
+    sensor_dag = _ok_dag(
+        "d",
+        schedule="0 0 * * *",
+        tasks=[
+            _sensor_task(
+                "wait", external_dag_id="u", external_task_id="x", execution_delta_seconds=43200
+            ),
+        ],
+    )
+    upstream = _ok_dag(
+        "u",
+        schedule="0 12 * * *",
+        tasks=[
+            RenderedTask(
+                task_id="x", operator="x.Op", task_group=None, upstream=[], downstream=[], fields={}
+            ),
+        ],
+    )
     assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []
 
 
@@ -290,31 +430,48 @@ def test_evaluator_exception_swallowed(monkeypatch):
 
     monkeypatch.setattr(mod, "_evaluate_sensor", boom)
 
-    sensor_dag = _ok_dag("d", schedule="@hourly", tasks=[
-        _sensor_task("wait", external_dag_id="u", external_task_id="x"),
-    ])
-    upstream = _ok_dag("u", schedule="@daily", tasks=[
-        RenderedTask(task_id="x", operator="x.Op", task_group=None,
-                     upstream=[], downstream=[], fields={}),
-    ])
+    sensor_dag = _ok_dag(
+        "d",
+        schedule="@hourly",
+        tasks=[
+            _sensor_task("wait", external_dag_id="u", external_task_id="x"),
+        ],
+    )
+    upstream = _ok_dag(
+        "u",
+        schedule="@daily",
+        tasks=[
+            RenderedTask(
+                task_id="x", operator="x.Op", task_group=None, upstream=[], downstream=[], fields={}
+            ),
+        ],
+    )
     # Should not raise; should return empty list.
     assert _mismatches_for_bag(_bag(sensor_dag, upstream), Config()) == []
 
 
 # ===== validate() tests (Task 11) =====
 
-from airflow_diff.validators.cross_dag import validate
 
-
-def _bag_with_sensor(sensor_dag_schedule: str = "@hourly",
-                     target_schedule: str = "@daily") -> RenderedDagBag:
-    sensor_dag = _ok_dag("downstream", schedule=sensor_dag_schedule, tasks=[
-        _sensor_task("wait", external_dag_id="upstream", external_task_id="x"),
-    ])
-    upstream = _ok_dag("upstream", schedule=target_schedule, tasks=[
-        RenderedTask(task_id="x", operator="x.Op", task_group=None,
-                     upstream=[], downstream=[], fields={}),
-    ])
+def _bag_with_sensor(
+    sensor_dag_schedule: str = "@hourly", target_schedule: str = "@daily"
+) -> RenderedDagBag:
+    sensor_dag = _ok_dag(
+        "downstream",
+        schedule=sensor_dag_schedule,
+        tasks=[
+            _sensor_task("wait", external_dag_id="upstream", external_task_id="x"),
+        ],
+    )
+    upstream = _ok_dag(
+        "upstream",
+        schedule=target_schedule,
+        tasks=[
+            RenderedTask(
+                task_id="x", operator="x.Op", task_group=None, upstream=[], downstream=[], fields={}
+            ),
+        ],
+    )
     return _bag(sensor_dag, upstream)
 
 
@@ -337,14 +494,27 @@ def test_validate_pre_existing_mismatch_silenced():
 def test_validate_same_pair_different_reason_silenced():
     # Base: missing delta. Head: wrong delta (key excludes reason → silenced).
     base = _bag_with_sensor()
-    head_sensor = _ok_dag("downstream", schedule="@hourly", tasks=[
-        _sensor_task("wait", external_dag_id="upstream", external_task_id="x",
-                     execution_delta_seconds=999),
-    ])
-    head_upstream = _ok_dag("upstream", schedule="@daily", tasks=[
-        RenderedTask(task_id="x", operator="x.Op", task_group=None,
-                     upstream=[], downstream=[], fields={}),
-    ])
+    head_sensor = _ok_dag(
+        "downstream",
+        schedule="@hourly",
+        tasks=[
+            _sensor_task(
+                "wait",
+                external_dag_id="upstream",
+                external_task_id="x",
+                execution_delta_seconds=999,
+            ),
+        ],
+    )
+    head_upstream = _ok_dag(
+        "upstream",
+        schedule="@daily",
+        tasks=[
+            RenderedTask(
+                task_id="x", operator="x.Op", task_group=None, upstream=[], downstream=[], fields={}
+            ),
+        ],
+    )
     head = _bag(head_sensor, head_upstream)
     # Sanity: head alone would report.
     assert len(_mismatches_for_bag(head, Config())) == 1

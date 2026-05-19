@@ -1,7 +1,8 @@
 """ANSI-colored text presenter."""
+
 from __future__ import annotations
 
-from airflow_diff.schema import DiffDocument, DagDiff, FieldDiff, SensorMismatch, TaskDiff
+from airflow_diff.schema import DagDiff, DiffDocument, SensorMismatch, TaskDiff
 
 GREEN = "\033[32m"
 RED = "\033[31m"
@@ -56,7 +57,9 @@ def _render_task(td: TaskDiff) -> list[str]:
     for ed in td.edge_diffs:
         sign = "+" if ed.change_type == "added" else "-"
         color = GREEN if ed.change_type == "added" else RED
-        out.append(f"      {color}{sign} {ed.direction} edge: {td.task_id} -> {ed.related_task_id}{RESET}")
+        out.append(
+            f"      {color}{sign} {ed.direction} edge: {td.task_id} -> {ed.related_task_id}{RESET}"
+        )
     return out
 
 

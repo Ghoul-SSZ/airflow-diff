@@ -3,13 +3,14 @@
 Worktrees are cached under a root dir keyed by full SHA so concurrent runs
 against the same SHA share the on-disk checkout.
 """
+
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
 
 DEFAULT_WORKTREE_ROOT = Path("/tmp/airflow-diff/worktrees")
 
@@ -47,7 +48,9 @@ def ensure_sha_present(repo_root: Path, sha: str) -> None:
 
 
 @contextmanager
-def worktree_for(repo_root: Path, sha: str, *, root: Path = DEFAULT_WORKTREE_ROOT) -> Iterator[Path]:
+def worktree_for(
+    repo_root: Path, sha: str, *, root: Path = DEFAULT_WORKTREE_ROOT
+) -> Iterator[Path]:
     root.mkdir(parents=True, exist_ok=True)
     target = root / sha
     if not target.exists():

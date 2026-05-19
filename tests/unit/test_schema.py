@@ -1,4 +1,3 @@
-import json
 from datetime import datetime, timezone
 
 import pytest
@@ -6,22 +5,17 @@ from pydantic import ValidationError
 
 from airflow_diff.schema import (
     SCHEMA_VERSION,
-    AttrDiff,
-    DagDiff,
-    DagStatus,
     DiffDocument,
     DiffSummary,
-    EdgeDiff,
     ExternalTaskRef,
     FieldDiff,
     ProvenanceEntry,
-    RenderError,
     RenderedDag,
     RenderedDagBag,
     RenderedField,
     RenderedTask,
+    RenderError,
     SensorMismatch,
-    TaskDiff,
 )
 
 
@@ -200,17 +194,21 @@ def test_external_task_ref_rejects_unknown_kind():
 
 
 def test_rendered_task_external_ref_defaults_to_none():
-    task = RenderedTask(task_id="t", operator="x.Op", task_group=None,
-                        upstream=[], downstream=[], fields={})
+    task = RenderedTask(
+        task_id="t", operator="x.Op", task_group=None, upstream=[], downstream=[], fields={}
+    )
     assert task.external_ref is None
 
 
 def test_sensor_mismatch_round_trip():
     m = SensorMismatch(
-        sensor_dag_id="d", sensor_task_id="t",
-        target_dag_id="u", target_task_id="x",
+        sensor_dag_id="d",
+        sensor_task_id="t",
+        target_dag_id="u",
+        target_task_id="x",
         reason="missing_execution_delta",
-        sensor_schedule="@hourly", target_schedule="@daily",
+        sensor_schedule="@hourly",
+        target_schedule="@daily",
     )
     assert SensorMismatch.model_validate_json(m.model_dump_json()) == m
 
@@ -218,8 +216,10 @@ def test_sensor_mismatch_round_trip():
 def test_sensor_mismatch_rejects_unknown_reason():
     with pytest.raises(ValidationError):
         SensorMismatch(
-            sensor_dag_id="d", sensor_task_id="t",
-            target_dag_id="u", reason="bogus",
+            sensor_dag_id="d",
+            sensor_task_id="t",
+            target_dag_id="u",
+            reason="bogus",
         )
 
 
@@ -243,8 +243,10 @@ def test_external_task_ref_allows_zero_targets():
 def test_sensor_mismatch_rejects_incorrect_delta_without_required_fields():
     with pytest.raises(ValidationError, match="expected_delta_seconds and actual_delta_seconds"):
         SensorMismatch(
-            sensor_dag_id="d", sensor_task_id="t",
-            target_dag_id="u", target_task_id="x",
+            sensor_dag_id="d",
+            sensor_task_id="t",
+            target_dag_id="u",
+            target_task_id="x",
             reason="incorrect_execution_delta",
             # expected_delta_seconds and actual_delta_seconds intentionally missing
         )
@@ -252,8 +254,10 @@ def test_sensor_mismatch_rejects_incorrect_delta_without_required_fields():
 
 def test_sensor_mismatch_incorrect_delta_with_required_fields_ok():
     m = SensorMismatch(
-        sensor_dag_id="d", sensor_task_id="t",
-        target_dag_id="u", target_task_id="x",
+        sensor_dag_id="d",
+        sensor_task_id="t",
+        target_dag_id="u",
+        target_task_id="x",
         reason="incorrect_execution_delta",
         expected_delta_seconds=43200,
         actual_delta_seconds=3600,
@@ -264,8 +268,10 @@ def test_sensor_mismatch_incorrect_delta_with_required_fields_ok():
 def test_sensor_mismatch_notes_max_length_enforced():
     with pytest.raises(ValidationError):
         SensorMismatch(
-            sensor_dag_id="d", sensor_task_id="t",
-            target_dag_id="u", reason="missing_execution_delta",
+            sensor_dag_id="d",
+            sensor_task_id="t",
+            target_dag_id="u",
+            reason="missing_execution_delta",
             notes="x" * 501,
         )
 
@@ -273,8 +279,11 @@ def test_sensor_mismatch_notes_max_length_enforced():
 def test_diff_document_sensor_mismatches_default_empty():
     doc = DiffDocument(
         schema_version=SCHEMA_VERSION,
-        base_sha="a", head_sha="b",
-        summary=DiffSummary(), dags=[], render_errors=[],
+        base_sha="a",
+        head_sha="b",
+        summary=DiffSummary(),
+        dags=[],
+        render_errors=[],
     )
     assert doc.sensor_mismatches == []
 

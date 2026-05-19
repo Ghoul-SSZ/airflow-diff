@@ -15,11 +15,20 @@ FIXTURES_ROOT = Path(__file__).parent.parent / "fixtures"
 def _run_renderer(worktree: Path, config: dict | None = None) -> RenderedDagBag:
     """Invoke the renderer as a subprocess with the current Python interpreter."""
     res = subprocess.run(
-        [sys.executable, "-m", "airflow_diff.renderer",
-         "--worktree", str(worktree),
-         "--commit-sha", "test_sha",
-         "--config", json.dumps(config or {})],
-        capture_output=True, text=True, check=False,
+        [
+            sys.executable,
+            "-m",
+            "airflow_diff.renderer",
+            "--worktree",
+            str(worktree),
+            "--commit-sha",
+            "test_sha",
+            "--config",
+            json.dumps(config or {}),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if res.returncode != 0:
         raise AssertionError(f"renderer exit={res.returncode} stderr={res.stderr}")
@@ -138,11 +147,22 @@ def test_fixtures_override_variable(tmp_path: Path):
     fixtures_yaml = tmp_path / "fixtures.yaml"
     fixtures_yaml.write_text("variables:\n  bucket: real-bucket\n")
     res = subprocess.run(
-        [sys.executable, "-m", "airflow_diff.renderer",
-         "--worktree", str(wt), "--commit-sha", "x",
-         "--config", "{}",
-         "--fixtures", str(fixtures_yaml)],
-        capture_output=True, text=True, check=True,
+        [
+            sys.executable,
+            "-m",
+            "airflow_diff.renderer",
+            "--worktree",
+            str(wt),
+            "--commit-sha",
+            "x",
+            "--config",
+            "{}",
+            "--fixtures",
+            str(fixtures_yaml),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
     )
     bag = RenderedDagBag.model_validate_json(res.stdout)
     [dag] = [d for d in bag.dags if d.dag_id == "templated"]
@@ -153,8 +173,10 @@ def test_fixtures_override_variable(tmp_path: Path):
 
 def test_renderer_rejects_airflow_3_via_mock(tmp_path: Path, monkeypatch):
     """We can't actually install Airflow 3 in the test env; test the version check directly."""
-    from airflow_diff.renderer import _airflow_version_ok
     import airflow
+
+    from airflow_diff.renderer import _airflow_version_ok
+
     real = airflow.__version__
     airflow.__version__ = "3.0.0"
     try:
@@ -249,10 +271,13 @@ def test_excluded_files_and_dag_ids_combined(tmp_path: Path):
     (dags / "experiments").mkdir()
     (dags / "experiments" / "exp.py").write_text(_trivial_dag_text("exp"))
 
-    bag = _run_renderer(tmp_path, {
-        "excluded_files": ["experiments/*"],
-        "excluded_dag_ids": ["sandbox_*"],
-    })
+    bag = _run_renderer(
+        tmp_path,
+        {
+            "excluded_files": ["experiments/*"],
+            "excluded_dag_ids": ["sandbox_*"],
+        },
+    )
     assert {d.dag_id for d in bag.dags} == {"keep"}
 
 
@@ -290,9 +315,7 @@ def test_literal_kwargs_captured_widely(tmp_path: Path):
     assert fields["email_on_retry"].rendered is False
     assert fields["do_xcom_push"].rendered is False
     assert fields["execution_timeout"].rendered == "PT900S"
-    assert fields["executor_config"].rendered == {
-        "KubernetesExecutor": {"image": "custom:1.0"}
-    }
+    assert fields["executor_config"].rendered == {"KubernetesExecutor": {"image": "custom:1.0"}}
     # All literal captures get provenance=[literal]
     assert fields["retries"].provenance[0].source == "literal"
 
@@ -305,9 +328,21 @@ def test_literal_kwargs_blocklist_skipped(tmp_path: Path):
 
     # Structural / cosmetic / documentation kwargs MUST NOT be captured
     # (they're either captured at DAG level or aren't useful to diff).
-    for name in ("owner", "doc_md", "doc", "ui_color", "ui_fgcolor",
-                 "dag", "task_group", "task_id", "inlets", "outlets",
-                 "params", "default_args", "subdag"):
+    for name in (
+        "owner",
+        "doc_md",
+        "doc",
+        "ui_color",
+        "ui_fgcolor",
+        "dag",
+        "task_group",
+        "task_id",
+        "inlets",
+        "outlets",
+        "params",
+        "default_args",
+        "subdag",
+    ):
         assert name not in explicit.fields, f"blocklisted kwarg {name!r} was captured"
 
 
@@ -318,8 +353,15 @@ def test_literal_kwargs_callbacks_skipped(tmp_path: Path):
     explicit = next(t for t in dag.tasks if t.task_id == "explicit_kwargs")
 
     # Callable callbacks MUST NOT be captured (can't diff a function reference).
-    for name in ("on_failure_callback", "on_success_callback", "on_retry_callback",
-                 "on_execute_callback", "sla_miss_callback", "pre_execute", "post_execute"):
+    for name in (
+        "on_failure_callback",
+        "on_success_callback",
+        "on_retry_callback",
+        "on_execute_callback",
+        "sla_miss_callback",
+        "pre_execute",
+        "post_execute",
+    ):
         assert name not in explicit.fields, f"callable kwarg {name!r} was captured"
 
 
@@ -389,8 +431,12 @@ def test_external_task_sensor_kwargs_not_duplicated_in_fields(tmp_path: Path):
 
     # All cross-DAG-related kwargs MUST be absent from task.fields.
     for name in (
-        "external_dag_id", "external_task_id", "external_task_ids",
-        "external_task_group_id", "execution_delta", "execution_date_fn",
+        "external_dag_id",
+        "external_task_id",
+        "external_task_ids",
+        "external_task_group_id",
+        "execution_delta",
+        "execution_date_fn",
     ):
         assert name not in task.fields, (
             f"{name!r} appears in task.fields AND task.external_ref — "

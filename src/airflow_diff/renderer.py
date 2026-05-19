@@ -8,6 +8,7 @@ Airflow.
 Run as: python -m airflow_diff.renderer --worktree <path> --commit-sha <sha> \\
                                         --config <json> [--fixtures <yaml>]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,23 +20,39 @@ import sys
 import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from airflow_diff.schema import ExternalTaskRef, RenderedDag
 
 # Names that should never appear in the rendered literal-kwargs set, either
 # because they're captured at a higher level (DAG/datasets), are purely
 # cosmetic, or are documentation strings that bloat diffs without adding
 # behavioral signal.
-_LITERAL_BLOCKLIST = frozenset({
-    # Structural — captured at DAG/task-group/dataset level, not here:
-    "dag", "task_group", "task_id", "inlets", "outlets",
-    "params", "default_args", "subdag",
-    # Cosmetic:
-    "ui_color", "ui_fgcolor",
-    # Documentation (noisy, not behavioral):
-    "doc", "doc_md", "doc_json", "doc_yaml", "doc_rst",
-    # User identity (changes per-task usage but not behavior):
-    "owner",
-})
+_LITERAL_BLOCKLIST = frozenset(
+    {
+        # Structural — captured at DAG/task-group/dataset level, not here:
+        "dag",
+        "task_group",
+        "task_id",
+        "inlets",
+        "outlets",
+        "params",
+        "default_args",
+        "subdag",
+        # Cosmetic:
+        "ui_color",
+        "ui_fgcolor",
+        # Documentation (noisy, not behavioral):
+        "doc",
+        "doc_md",
+        "doc_json",
+        "doc_yaml",
+        "doc_rst",
+        # User identity (changes per-task usage but not behavior):
+        "owner",
+    }
+)
 
 # Stubs MUST be installed before any DAG import. We patch Airflow's Variable,
 # BaseHook, and TaskInstance.xcom_pull at module level.
@@ -44,8 +61,8 @@ _FIXTURES: dict[str, Any] = {"variables": {}, "connections": {}}
 
 
 def _install_stubs() -> None:
-    from airflow.models import Variable
     from airflow.hooks.base import BaseHook
+    from airflow.models import Variable
     from airflow.models.connection import Connection
 
     def stub_variable_get(key, default_var=None, deserialize_json=False, **kw):
@@ -86,6 +103,7 @@ def _install_stubs() -> None:
 
 def _airflow_version_ok() -> tuple[bool, str]:
     import airflow
+
     v = airflow.__version__
     major = int(v.split(".")[0])
     return major == 2, v
@@ -127,24 +145,32 @@ class _StubVarNamespace:
     class _ValueProxy:
         def __getattr__(self, name):
             return _FIXTURES["variables"].get(name, f"<VAR:{name}>")
+
         def __getitem__(self, name):
             return _FIXTURES["variables"].get(name, f"<VAR:{name}>")
+
     class _JsonProxy:
         def __getattr__(self, name):
             return _FIXTURES["variables"].get(name, f"<VAR:{name}>")
+
         def __getitem__(self, name):
             return _FIXTURES["variables"].get(name, f"<VAR:{name}>")
+
     value = _ValueProxy()
     json = _JsonProxy()
 
 
 class _StubConnNamespace:
-    def __getattr__(self, name): return _StubConnEntry(name)
+    def __getattr__(self, name):
+        return _StubConnEntry(name)
 
 
 class _StubConnEntry:
-    def __init__(self, conn_id): self._id = conn_id
-    def __getattr__(self, name): return f"<CONN:{self._id}.{name}>"
+    def __init__(self, conn_id):
+        self._id = conn_id
+
+    def __getattr__(self, name):
+        return f"<CONN:{self._id}.{name}>"
 
 
 class _StubTI:
@@ -203,7 +229,9 @@ def _extract_literal_kwargs(task, template_fields: frozenset) -> dict[str, Any]:
         # spurious diffs across renderer runs (e.g., weight_rule strategy
         # instances render as "<...object at 0x7f...>"). This also catches
         # callables (functions, lambdas, methods, partials).
-        if not isinstance(value, (str, int, float, bool, list, tuple, dict, set, frozenset, datetime, timedelta)):
+        if not isinstance(
+            value, (str, int, float, bool, list, tuple, dict, set, frozenset, datetime, timedelta)
+        ):
             continue
         if param.default is not inspect.Parameter.empty:
             try:
@@ -217,13 +245,14 @@ def _extract_literal_kwargs(task, template_fields: frozenset) -> dict[str, Any]:
     return out
 
 
-def _extract_external_ref(task) -> "ExternalTaskRef | None":
+def _extract_external_ref(task) -> ExternalTaskRef | None:
     """Capture cross-DAG metadata for any task whose MRO contains ExternalTaskSensor.
 
     Uses class-name MRO walk rather than isinstance to avoid hard-importing
     airflow.sensors.external_task (defensive, matches _extract_dataset_uris style).
     """
     from datetime import timedelta as _td
+
     from airflow_diff.schema import ExternalTaskRef
 
     if not any(c.__name__ == "ExternalTaskSensor" for c in type(task).__mro__):
@@ -252,22 +281,26 @@ def _extract_external_ref(task) -> "ExternalTaskRef | None":
     )
 
 
-def _render_dag(dag, synthetic_logical_date: str) -> "RenderedDag":
+def _render_dag(dag, synthetic_logical_date: str) -> RenderedDag:
     """Walk a DAG, render templates per task, return a RenderedDag."""
     from airflow_diff.schema import (
-        RenderedDag, RenderedTask, RenderedField, ProvenanceEntry,
-        DatasetRefs, TaskGroupInfo, ExternalTaskRef,
+        DatasetRefs,
+        ProvenanceEntry,
+        RenderedDag,
+        RenderedField,
+        RenderedTask,
+        TaskGroupInfo,
     )
 
     tasks_out: list[RenderedTask] = []
     for task in dag.tasks:
         fields: dict[str, RenderedField] = {}
         context = _build_context(dag, task, synthetic_logical_date)
-        for fname in (task.template_fields or ()):
+        for fname in task.template_fields or ():
             try:
                 value = getattr(task, fname, None)
                 rendered = task.render_template(value, context)
-            except Exception as e:  # noqa: BLE001 — capture renderer errors per-field
+            except Exception as e:
                 # Field-level errors: record with a placeholder; loop continues.
                 # (Bugfix vs plan: removed the dead intermediate RenderedField
                 #  assignment; we set the final value directly.)
@@ -281,9 +314,7 @@ def _render_dag(dag, synthetic_logical_date: str) -> "RenderedDag":
         # Capture non-template operator kwargs the user set to non-default
         # values, walking the MRO of the operator class. See _extract_literal_kwargs.
         try:
-            literal_kwargs = _extract_literal_kwargs(
-                task, frozenset(task.template_fields or ())
-            )
+            literal_kwargs = _extract_literal_kwargs(task, frozenset(task.template_fields or ()))
         except Exception:
             literal_kwargs = {}  # per-task isolation
         for k, v in literal_kwargs.items():
@@ -305,21 +336,31 @@ def _render_dag(dag, synthetic_logical_date: str) -> "RenderedDag":
             # template loop also captures these because they're in
             # ExternalTaskSensor.template_fields, so deduplication has to happen
             # after both capture paths have run.
-            for _dup in ("external_dag_id", "external_task_id", "external_task_ids",
-                         "external_task_group_id", "execution_delta", "execution_date_fn"):
+            for _dup in (
+                "external_dag_id",
+                "external_task_id",
+                "external_task_ids",
+                "external_task_group_id",
+                "execution_delta",
+                "execution_date_fn",
+            ):
                 fields.pop(_dup, None)
-        tasks_out.append(RenderedTask(
-            task_id=task.task_id,
-            operator=f"{type(task).__module__}.{type(task).__name__}",
-            task_group=tg_id,
-            upstream=sorted(t.task_id for t in task.upstream_list),
-            downstream=sorted(t.task_id for t in task.downstream_list),
-            fields=fields,
-            external_ref=external_ref,
-        ))
+        tasks_out.append(
+            RenderedTask(
+                task_id=task.task_id,
+                operator=f"{type(task).__module__}.{type(task).__name__}",
+                task_group=tg_id,
+                upstream=sorted(t.task_id for t in task.upstream_list),
+                downstream=sorted(t.task_id for t in task.downstream_list),
+                fields=fields,
+                external_ref=external_ref,
+            )
+        )
 
     attrs = {
-        "schedule": _jsonify(getattr(dag, "schedule_interval", None) or getattr(dag, "schedule", None)),
+        "schedule": _jsonify(
+            getattr(dag, "schedule_interval", None) or getattr(dag, "schedule", None)
+        ),
         "start_date": _jsonify(getattr(dag, "start_date", None)),
         "catchup": getattr(dag, "catchup", None),
         "tags": list(getattr(dag, "tags", []) or []),
@@ -337,10 +378,14 @@ def _render_dag(dag, synthetic_logical_date: str) -> "RenderedDag":
             for tg in tg_dict.values():
                 if tg.group_id is None:
                     continue
-                task_groups.append(TaskGroupInfo(
-                    group_id=tg.group_id,
-                    tasks=sorted(t.task_id for t in tg.children.values() if hasattr(t, "task_id")),
-                ))
+                task_groups.append(
+                    TaskGroupInfo(
+                        group_id=tg.group_id,
+                        tasks=sorted(
+                            t.task_id for t in tg.children.values() if hasattr(t, "task_id")
+                        ),
+                    )
+                )
         else:
             # Fallback: group tasks by task_group.group_id manually
             groups: dict[str, list[str]] = {}
@@ -401,9 +446,11 @@ def _extract_dataset_uris(items) -> list[str]:
 def _classify_provenance(value):
     """Best-effort: scan a string for our stub markers and report what was used."""
     from airflow_diff.schema import ProvenanceEntry
+
     if not isinstance(value, str):
         return [ProvenanceEntry(source="literal")]
     import re
+
     prov = []
     for m in re.finditer(r"<(VAR|CONN|XCOM):([^>]+)>", value):
         kind = m.group(1)
@@ -422,6 +469,7 @@ def _classify_provenance(value):
 def _jsonify(value):
     """Make any value safe to put in JSON. Stringify datetimes, durations, etc."""
     from datetime import datetime, timedelta
+
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, timedelta):
@@ -449,6 +497,7 @@ def main(argv: list[str] | None = None) -> int:
     # Load fixtures if provided
     if args.fixtures:
         import yaml
+
         fix = yaml.safe_load(Path(args.fixtures).read_text()) or {}
         _FIXTURES["variables"] = fix.get("variables") or {}
         _FIXTURES["connections"] = fix.get("connections") or {}
@@ -473,8 +522,12 @@ def main(argv: list[str] | None = None) -> int:
     excluded_dag_ids = config.get("excluded_dag_ids") or []
 
     from airflow.models import DAG
+
     from airflow_diff.schema import (
-        RenderedDag, RenderedDagBag, RenderError, SCHEMA_VERSION,
+        SCHEMA_VERSION,
+        RenderedDag,
+        RenderedDagBag,
+        RenderError,
     )
 
     rendered: list[RenderedDag] = []
@@ -486,10 +539,16 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 globs = _import_dag_file(py)
             except Exception as e:
-                rendered.append(RenderedDag(
-                    dag_id=py.stem, status="error", source_file=str(py.relative_to(worktree)),
-                    error=RenderError(type=type(e).__name__, message=str(e), traceback=traceback.format_exc()),
-                ))
+                rendered.append(
+                    RenderedDag(
+                        dag_id=py.stem,
+                        status="error",
+                        source_file=str(py.relative_to(worktree)),
+                        error=RenderError(
+                            type=type(e).__name__, message=str(e), traceback=traceback.format_exc()
+                        ),
+                    )
+                )
                 continue
             for v in globs.values():
                 if isinstance(v, DAG):
@@ -498,13 +557,21 @@ def main(argv: list[str] | None = None) -> int:
                     try:
                         rendered.append(_render_dag(v, synthetic_logical_date))
                     except Exception as e:
-                        rendered.append(RenderedDag(
-                            dag_id=v.dag_id, status="error",
-                            source_file=str(py.relative_to(worktree)),
-                            error=RenderError(type=type(e).__name__, message=str(e), traceback=traceback.format_exc()),
-                        ))
+                        rendered.append(
+                            RenderedDag(
+                                dag_id=v.dag_id,
+                                status="error",
+                                source_file=str(py.relative_to(worktree)),
+                                error=RenderError(
+                                    type=type(e).__name__,
+                                    message=str(e),
+                                    traceback=traceback.format_exc(),
+                                ),
+                            )
+                        )
 
     import airflow
+
     bag = RenderedDagBag(
         schema_version=SCHEMA_VERSION,
         commit_sha=args.commit_sha,

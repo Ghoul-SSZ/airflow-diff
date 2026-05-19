@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from airflow_diff.config import Config, Fixtures, load_config, load_fixtures
+from airflow_diff.config import Fixtures, load_config, load_fixtures
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "config"
 

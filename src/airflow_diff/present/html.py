@@ -4,6 +4,7 @@ Reuses the markdown presenter under the hood, then wraps the result in a
 self-contained HTML document with Mermaid + GitHub-ish CSS for parity with how
 the comment would render in a PR.
 """
+
 from __future__ import annotations
 
 import html
@@ -100,15 +101,14 @@ def _markdown_to_html(md: str) -> str:
             j = i
             tbl = []
             while j < len(lines) and lines[j].startswith("|"):
-                tbl.append(lines[j]); j += 1
+                tbl.append(lines[j])
+                j += 1
             out.append(_render_table(tbl))
             i = j
             continue
         elif line.startswith("<details"):
             out.append(line)  # pass through, GitHub-flavored HTML
-        elif line.startswith("</details>"):
-            out.append(line)
-        elif line.startswith("<summary"):
+        elif line.startswith("</details>") or line.startswith("<summary"):
             out.append(line)
         else:
             out.append(html.escape(line) + "<br>" if line.strip() else "")
@@ -117,7 +117,7 @@ def _markdown_to_html(md: str) -> str:
 
 
 def _render_table(lines: list[str]) -> str:
-    rows = [[c.strip() for c in re.split(r"\s*\|\s*", l.strip("|"))] for l in lines]
+    rows = [[c.strip() for c in re.split(r"\s*\|\s*", line.strip("|"))] for line in lines]
     header = rows[0]
     body = rows[2:]  # rows[1] is the |---|---| separator
     out = ["<table><thead><tr>"]

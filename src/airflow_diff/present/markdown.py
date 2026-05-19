@@ -3,19 +3,24 @@
 Output is a single string suitable for posting as a PR comment. GitHub renders
 Mermaid blocks natively, so the diff graph ships as plain markdown.
 """
+
 from __future__ import annotations
 
 from airflow_diff.schema import DagDiff, DiffDocument, FieldDiff, SensorMismatch, TaskDiff
 
-MAX_TASKS_FOR_GRAPH = 50  # honored from config in orchestrator; constant here for unit-test simplicity
+MAX_TASKS_FOR_GRAPH = (
+    50  # honored from config in orchestrator; constant here for unit-test simplicity
+)
 GITHUB_COMMENT_CHAR_LIMIT = 65_536
 
 
 def render_markdown(doc: DiffDocument, config=None) -> str:
     max_tasks = config.max_tasks_for_graph if config is not None else MAX_TASKS_FOR_GRAPH
-    char_limit = config.github_comment_char_limit if (
-        config is not None and hasattr(config, "github_comment_char_limit")
-    ) else GITHUB_COMMENT_CHAR_LIMIT
+    char_limit = (
+        config.github_comment_char_limit
+        if (config is not None and hasattr(config, "github_comment_char_limit"))
+        else GITHUB_COMMENT_CHAR_LIMIT
+    )
     full = _render_internal(doc, max_tasks)
     if len(full) <= char_limit:
         return full
@@ -54,11 +59,17 @@ def _render_internal(doc: DiffDocument, max_tasks_for_graph: int = MAX_TASKS_FOR
     incidental = [d for d in doc.dags if d.classification == "incidentally_affected"]
 
     for d in touched + added + removed:
-        parts.append(_render_dag_section(d, collapsed=False, max_tasks_for_graph=max_tasks_for_graph))
+        parts.append(
+            _render_dag_section(d, collapsed=False, max_tasks_for_graph=max_tasks_for_graph)
+        )
     if incidental:
-        parts.append("<details><summary>DAGs incidentally affected (not touched by this PR)</summary>\n")
+        parts.append(
+            "<details><summary>DAGs incidentally affected (not touched by this PR)</summary>\n"
+        )
         for d in incidental:
-            parts.append(_render_dag_section(d, collapsed=False, max_tasks_for_graph=max_tasks_for_graph))
+            parts.append(
+                _render_dag_section(d, collapsed=False, max_tasks_for_graph=max_tasks_for_graph)
+            )
         parts.append("\n</details>\n")
     return "\n".join(parts) + "\n"
 
@@ -68,10 +79,14 @@ def _header(doc: DiffDocument) -> str:
     total = s.dags_touched + s.dags_incidentally_affected + s.dags_added + s.dags_removed
     line = f"## airflow-diff: {total} DAG{'s' if total != 1 else ''} changed"
     bits = []
-    if s.dags_added: bits.append(f"{s.dags_added} added")
-    if s.dags_removed: bits.append(f"{s.dags_removed} removed")
-    if s.dags_regressed: bits.append(f"**{s.dags_regressed} regressed**")
-    if s.dags_fixed: bits.append(f"{s.dags_fixed} fixed")
+    if s.dags_added:
+        bits.append(f"{s.dags_added} added")
+    if s.dags_removed:
+        bits.append(f"{s.dags_removed} removed")
+    if s.dags_regressed:
+        bits.append(f"**{s.dags_regressed} regressed**")
+    if s.dags_fixed:
+        bits.append(f"{s.dags_fixed} fixed")
     if s.dags_incidentally_affected:
         bits.append(f"{s.dags_incidentally_affected} incidentally affected")
     n_mismatch = len(doc.sensor_mismatches)
@@ -85,17 +100,23 @@ def _warning_banner(doc: DiffDocument) -> str:
     msgs = []
     regressed = [d.dag_id for d in doc.dags if d.pair_status == "regressed"]
     if regressed:
-        msgs.append(f"⚠️ **Regressions introduced by this PR:** {', '.join(f'`{i}`' for i in regressed)}")
+        msgs.append(
+            f"⚠️ **Regressions introduced by this PR:** {', '.join(f'`{i}`' for i in regressed)}"
+        )
     still_broken = [d.dag_id for d in doc.dags if d.pair_status == "still_broken"]
     if still_broken:
-        msgs.append(f"⚠️ **Still broken (render errors on both sides):** {', '.join(f'`{i}`' for i in still_broken)}")
+        msgs.append(
+            f"⚠️ **Still broken (render errors on both sides):** {', '.join(f'`{i}`' for i in still_broken)}"
+        )
     if doc.render_errors:
         ids = ", ".join(f"`{e.dag_id}`" for e in doc.render_errors)
         msgs.append(f"⚠️ **Render errors:** {ids}")
     return "\n".join(msgs) + "\n"
 
 
-def _render_dag_section(d: DagDiff, *, collapsed: bool, max_tasks_for_graph: int = MAX_TASKS_FOR_GRAPH) -> str:
+def _render_dag_section(
+    d: DagDiff, *, collapsed: bool, max_tasks_for_graph: int = MAX_TASKS_FOR_GRAPH
+) -> str:
     parts: list[str] = []
     parts.append(f"### `{d.dag_id}` — {_dag_change_summary(d)}")
     graph = _render_mermaid(d, max_tasks_for_graph=max_tasks_for_graph)
@@ -110,16 +131,22 @@ def _render_dag_section(d: DagDiff, *, collapsed: bool, max_tasks_for_graph: int
 
 
 def _dag_change_summary(d: DagDiff) -> str:
-    if d.classification == "added": return "new DAG"
-    if d.classification == "removed": return "removed"
+    if d.classification == "added":
+        return "new DAG"
+    if d.classification == "removed":
+        return "removed"
     n_tasks_added = sum(1 for t in d.task_diffs if t.change_type == "added")
     n_tasks_removed = sum(1 for t in d.task_diffs if t.change_type == "removed")
     n_tasks_modified = sum(1 for t in d.task_diffs if t.change_type == "modified")
     bits = []
-    if d.attr_diffs: bits.append(f"{len(d.attr_diffs)} attr change{'s' if len(d.attr_diffs) != 1 else ''}")
-    if n_tasks_added: bits.append(f"{n_tasks_added} task{'s' if n_tasks_added != 1 else ''} added")
-    if n_tasks_modified: bits.append(f"{n_tasks_modified} task{'s' if n_tasks_modified != 1 else ''} modified")
-    if n_tasks_removed: bits.append(f"{n_tasks_removed} task{'s' if n_tasks_removed != 1 else ''} removed")
+    if d.attr_diffs:
+        bits.append(f"{len(d.attr_diffs)} attr change{'s' if len(d.attr_diffs) != 1 else ''}")
+    if n_tasks_added:
+        bits.append(f"{n_tasks_added} task{'s' if n_tasks_added != 1 else ''} added")
+    if n_tasks_modified:
+        bits.append(f"{n_tasks_modified} task{'s' if n_tasks_modified != 1 else ''} modified")
+    if n_tasks_removed:
+        bits.append(f"{n_tasks_removed} task{'s' if n_tasks_removed != 1 else ''} removed")
     return ", ".join(bits) or "no structural change"
 
 
@@ -176,7 +203,9 @@ def _render_mermaid(d: DagDiff, max_tasks_for_graph: int = MAX_TASKS_FOR_GRAPH) 
 
     for td in d.task_diffs:
         css = {
-            "added": "added", "removed": "removed", "modified": "modified",
+            "added": "added",
+            "removed": "removed",
+            "modified": "modified",
         }.get(td.change_type, "unchanged")
         nodes[td.task_id] = css
         for ed in td.edge_diffs:
@@ -192,16 +221,22 @@ def _render_mermaid(d: DagDiff, max_tasks_for_graph: int = MAX_TASKS_FOR_GRAPH) 
     if len(nodes) > max_tasks_for_graph:
         return _graph_summary_box(d)
 
-    lines = ["```mermaid", "graph LR",
-             "  classDef added fill:#dafbe1,stroke:#1a7f37,stroke-width:2px,color:#1a7f37",
-             "  classDef removed fill:#ffebe9,stroke:#cf222e,stroke-width:2px,color:#cf222e",
-             "  classDef modified fill:#fff8c5,stroke:#9a6700,stroke-width:2px,color:#9a6700",
-             "  classDef unchanged fill:#f6f8fa,stroke:#656d76,color:#1f2328"]
+    lines = [
+        "```mermaid",
+        "graph LR",
+        "  classDef added fill:#dafbe1,stroke:#1a7f37,stroke-width:2px,color:#1a7f37",
+        "  classDef removed fill:#ffebe9,stroke:#cf222e,stroke-width:2px,color:#cf222e",
+        "  classDef modified fill:#fff8c5,stroke:#9a6700,stroke-width:2px,color:#9a6700",
+        "  classDef unchanged fill:#f6f8fa,stroke:#656d76,color:#1f2328",
+    ]
     for tid, css in sorted(nodes.items()):
         label = tid
-        if css == "added": label = f"+ {tid}"
-        elif css == "modified": label = f"{tid} ✎"
-        elif css == "removed": label = f"- {tid}"
+        if css == "added":
+            label = f"+ {tid}"
+        elif css == "modified":
+            label = f"{tid} ✎"
+        elif css == "removed":
+            label = f"- {tid}"
         lines.append(f'  {_mermaid_id(tid)}["{label}"]:::{css}')
     link_styles: list[str] = []
     for i, (a, b, change) in enumerate(edges):
@@ -210,7 +245,9 @@ def _render_mermaid(d: DagDiff, max_tasks_for_graph: int = MAX_TASKS_FOR_GRAPH) 
         if change == "added":
             link_styles.append(f"  linkStyle {i} stroke:#1a7f37,stroke-width:2.5px")
         elif change == "removed":
-            link_styles.append(f"  linkStyle {i} stroke:#cf222e,stroke-width:1.5px,stroke-dasharray:5")
+            link_styles.append(
+                f"  linkStyle {i} stroke:#cf222e,stroke-width:1.5px,stroke-dasharray:5"
+            )
     lines.extend(link_styles)
     lines.append("```")
     return "\n".join(lines)
@@ -236,7 +273,7 @@ def _render_sensor_mismatches(mismatches: list[SensorMismatch]) -> str:
     n = len(mismatches)
     plural = "configurations" if n != 1 else "configuration"
     lines = [
-        f"## ⚠️ Cross-DAG sensor mismatches (PR-introduced)",
+        "## ⚠️ Cross-DAG sensor mismatches (PR-introduced)",
         "",
         f"This PR introduces {n} `ExternalTaskSensor` {plural} that may not align "
         f"with their upstream targets at runtime.",
@@ -285,7 +322,9 @@ def _mismatch_detail_block(m: SensorMismatch) -> list[str]:
         f"- Target DAG schedule: `{m.target_schedule or 'unknown'}`",
     ]
     if m.reason != "dangling_target":
-        delta_str = f"`{m.actual_delta_seconds}s`" if m.actual_delta_seconds is not None else "not set"
+        delta_str = (
+            f"`{m.actual_delta_seconds}s`" if m.actual_delta_seconds is not None else "not set"
+        )
         out.append(f"- `execution_delta`: {delta_str}")
     if m.reason == "incorrect_execution_delta":
         out.append(f"- Expected `execution_delta`: `{m.expected_delta_seconds}s`")

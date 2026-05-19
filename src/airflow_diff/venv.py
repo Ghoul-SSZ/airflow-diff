@@ -3,6 +3,7 @@
 Cache key is a hash of `requirements.txt` + `pyproject.toml` + `constraints.txt`
 (whichever exist). Two commits with identical dep files share a venv.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -31,7 +32,7 @@ def _run(args: list[str], **kwargs) -> _RunResult:
     return _RunResult(res.returncode, res.stdout, res.stderr)
 
 
-def _mark_ready_for_test(venv_dir: Path) -> None:  # noqa: D401 — test hook
+def _mark_ready_for_test(venv_dir: Path) -> None:
     """Test hook: mark the venv as ready (real path writes the marker after install)."""
     (venv_dir / _READY_MARKER).write_text("ok")
 
@@ -66,21 +67,36 @@ def venv_for(worktree_path: Path, *, root: Path = DEFAULT_VENV_ROOT) -> Path:
     # Install deps (prefer requirements.txt; otherwise install the project itself)
     req = worktree_path / "requirements.txt"
     if req.exists():
-        res = _run([
-            "uv", "pip", "install",
-            "--python", str(python),
-            "-r", str(req),
-        ])
+        res = _run(
+            [
+                "uv",
+                "pip",
+                "install",
+                "--python",
+                str(python),
+                "-r",
+                str(req),
+            ]
+        )
     elif (worktree_path / "pyproject.toml").exists():
-        res = _run([
-            "uv", "pip", "install",
-            "--python", str(python),
-            "-e", str(worktree_path),
-        ])
+        res = _run(
+            [
+                "uv",
+                "pip",
+                "install",
+                "--python",
+                str(python),
+                "-e",
+                str(worktree_path),
+            ]
+        )
     else:
         # No deps to install — venv with stdlib is fine
         class R:
-            returncode = 0; stdout = ""; stderr = ""
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
         res = R()
 
     if res.returncode != 0:
@@ -88,11 +104,17 @@ def venv_for(worktree_path: Path, *, root: Path = DEFAULT_VENV_ROOT) -> Path:
 
     # Always ensure airflow_diff's own runtime deps are present so the renderer
     # subprocess can import airflow_diff.schema (injected via PYTHONPATH).
-    res2 = _run([
-        "uv", "pip", "install",
-        "--python", str(python),
-        "pydantic>=2.5", "PyYAML>=6.0",
-    ])
+    res2 = _run(
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(python),
+            "pydantic>=2.5",
+            "PyYAML>=6.0",
+        ]
+    )
     if res2.returncode != 0:
         raise VenvError(f"uv pip install (runtime deps) failed: {res2.stderr.strip()}")
 
