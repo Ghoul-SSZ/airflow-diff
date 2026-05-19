@@ -311,6 +311,19 @@ pip install airflow-diff
 Requires Python 3.10+. The CLI needs `uv` and `git` on PATH; the GitHub Action
 additionally needs `gh` (used by the wrapper script to post PR comments).
 
+## Developing
+
+```bash
+uv pip install -e ".[dev]"
+pre-commit install            # one-time
+pytest tests/unit -v
+ruff check src/ tests/
+mypy
+```
+
+Lint, format, and type-check run on every commit via pre-commit; CI runs the
+same checks plus integration tests across Python × Airflow combinations.
+
 ## CLI usage
 
 ```bash

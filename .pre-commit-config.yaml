@@ -1,0 +1,28 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.13
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.1.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - pydantic>=2.5
+          - types-PyYAML
+        args: [--config-file=pyproject.toml]
+        files: ^src/airflow_diff/
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        # Snapshot fixtures (.ambr) and git patches are byte-sensitive;
+        # trailing whitespace inside them is meaningful and must not be stripped.
+        exclude: '\.(ambr|patch)$'
+      - id: end-of-file-fixer
+        exclude: '\.(ambr|patch)$'
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict

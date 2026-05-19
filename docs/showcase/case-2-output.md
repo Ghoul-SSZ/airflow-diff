@@ -29,4 +29,3 @@ This PR introduces 1 `ExternalTaskSensor` configuration that may not align with 
 ### `finance_rollup` — no structural change
 
 </details>
-

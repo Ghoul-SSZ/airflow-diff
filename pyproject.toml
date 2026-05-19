@@ -64,6 +64,12 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["B011"]  # assert False is fine in tests
 
+[tool.ruff.lint.isort]
+# Pin first-party grouping explicitly so pre-commit and CI agree even if the
+# two pick up different ruff versions; without it, isort heuristics can flip
+# `airflow_diff` between first-party and third-party and churn import blocks.
+known-first-party = ["airflow_diff"]
+
 [tool.mypy]
 python_version = "3.10"
 files = ["src/airflow_diff"]
