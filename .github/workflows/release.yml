@@ -1,0 +1,99 @@
+name: release
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  verify-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: extract
+        name: Extract version from tag and verify it matches __version__
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(python -c 'import sys; sys.path.insert(0, "src"); import airflow_diff; print(airflow_diff.__version__)')"
+          echo "tag=$TAG_VERSION pkg=$PKG_VERSION"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag $TAG_VERSION does not match airflow_diff.__version__ ($PKG_VERSION). Bump __version__ before tagging."
+            exit 1
+          fi
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install uv
+      - run: uv pip install --system build
+      - run: python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: [verify-version, build]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # required for trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  bump-action-default:
+    needs: [verify-version, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Update action.yml default to match newly published version
+        env:
+          VERSION: ${{ needs.verify-version.outputs.version }}
+        run: |
+          python - <<'PY'
+          import os, re, pathlib
+          version = os.environ["VERSION"]
+          p = pathlib.Path("action/action.yml")
+          s = p.read_text()
+          new = re.sub(
+              r'(airflow-diff-version:\s*\n\s+description:[^\n]*\n\s+required:[^\n]*\n\s+default:\s*)"[^"]+"',
+              lambda m: f'{m.group(1)}"{version}"',
+              s,
+          )
+          assert new != s, "action.yml default not updated — regex did not match"
+          p.write_text(new)
+          PY
+      - name: Open PR to bump action default
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="release/bump-action-${{ needs.verify-version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add action/action.yml
+          git commit -m "chore(action): bump default airflow-diff-version to ${{ needs.verify-version.outputs.version }}"
+          git push -u origin "$BRANCH"
+          gh pr create --title "chore(action): bump default to v${{ needs.verify-version.outputs.version }}" \
+                       --body "Auto-opened by release workflow after publishing v${{ needs.verify-version.outputs.version }} to PyPI." \
+                       --base main --head "$BRANCH"

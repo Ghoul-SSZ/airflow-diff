@@ -439,3 +439,14 @@ have CI exit `1` on any PR-introduced mismatch.
 - Dynamic task mapping (`.expand()`) is captured structurally but not
   unrolled into mapped task instances.
 - No rename detection — renamed tasks or DAGs appear as remove + add.
+
+## Releasing
+
+1. Update `airflow_diff.__version__` and move the `## [Unreleased]` block in `CHANGELOG.md` under a new `## [X.Y.Z]` heading.
+2. Open a PR titled `release: vX.Y.Z`. Merge it.
+3. From `main`, tag and push:
+    ```bash
+    git tag vX.Y.Z
+    git push origin vX.Y.Z
+    ```
+4. The `release` workflow verifies the tag matches `__version__`, builds, publishes to PyPI via OIDC, and opens a follow-up PR to bump `action/action.yml`'s default.
