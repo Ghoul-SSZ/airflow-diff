@@ -11,6 +11,7 @@ import contextlib
 import json
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from airflow_diff.config import Config
@@ -137,24 +138,18 @@ def run_diff(repo_root: Path, base_ref: str, head_ref: str, config: Config) -> D
         fixtures_base = wt_base / config.fixtures_path
         fixtures_head = wt_head / config.fixtures_path
 
-        py_base = venv_for(wt_base)
-        py_head = venv_for(wt_head)
+        def _render_side(wt: Path, sha: str, fixtures: Path) -> RenderedDagBag:
+            py = venv_for(wt)
+            return _spawn_renderer(py, wt, sha, config, fixtures if fixtures.exists() else None)
 
-        # Renderers run serially for simplicity in MVP; parallel is a later optimization
-        rendered_base = _spawn_renderer(
-            py_base,
-            wt_base,
-            base_sha,
-            config,
-            fixtures_base if fixtures_base.exists() else None,
-        )
-        rendered_head = _spawn_renderer(
-            py_head,
-            wt_head,
-            head_sha,
-            config,
-            fixtures_head if fixtures_head.exists() else None,
-        )
+        # Renderers run in parallel: each spends most of its time blocked on a
+        # subprocess (`proc.communicate`), so threads suffice — no GIL contention
+        # and no pickling cost from ProcessPoolExecutor.
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="airflow-diff-render") as ex:
+            fut_base = ex.submit(_render_side, wt_base, base_sha, fixtures_base)
+            fut_head = ex.submit(_render_side, wt_head, head_sha, fixtures_head)
+            rendered_base = fut_base.result()
+            rendered_head = fut_head.result()
 
     diff = compute_diff(rendered_base, rendered_head, touched_files=touched)
     diff.sensor_mismatches = _validate_cross_dag(rendered_base, rendered_head, config)

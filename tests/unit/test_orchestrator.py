@@ -42,16 +42,18 @@ def test_orchestrator_invokes_renderer_per_commit_and_diffs(tmp_path, monkeypatc
     monkeypatch.setattr(orchestrator, "venv_for", lambda wt, **kw: Path("/usr/bin/python3"))
     monkeypatch.setattr(orchestrator, "_touched_files", lambda r, a, b: [])
 
-    call_count = {"n": 0}
+    base_sha_full = "aaa" + "0" * 37
 
     def fake_popen(args, **kw):
+        # Dispatch by --commit-sha so the test is robust to parallel renderer
+        # ordering (the orchestrator runs both renderers concurrently).
+        sha = args[args.index("--commit-sha") + 1]
         proc = MagicMock()
         proc.communicate.return_value = (
-            head_bag_json if call_count["n"] else base_bag_json,
+            base_bag_json if sha == base_sha_full else head_bag_json,
             "",
         )
         proc.returncode = 0
-        call_count["n"] += 1
         return proc
 
     monkeypatch.setattr(orchestrator.subprocess, "Popen", fake_popen)
@@ -125,8 +127,10 @@ def test_orchestrator_attaches_sensor_mismatches(tmp_path, monkeypatch):
             dags=[sensor_dag, upstream],
         ).model_dump_json()
 
-    base_json = _bag("aaa", "@daily")  # aligned → no mismatch at base
-    head_json = _bag("bbb", "@hourly")  # misaligned → PR-introduced
+    base_sha_full = "aaa" + "0" * 37
+    head_sha_full = "bbb" + "0" * 37
+    base_json = _bag(base_sha_full, "@daily")  # aligned → no mismatch at base
+    head_json = _bag(head_sha_full, "@hourly")  # misaligned → PR-introduced
 
     monkeypatch.setattr(orchestrator, "resolve_sha", lambda r, s: s + "0" * (40 - len(s)))
     monkeypatch.setattr(orchestrator, "ensure_sha_present", lambda r, s: None)
@@ -143,13 +147,16 @@ def test_orchestrator_attaches_sensor_mismatches(tmp_path, monkeypatch):
     monkeypatch.setattr(orchestrator, "venv_for", lambda wt, **kw: Path("/usr/bin/python3"))
     monkeypatch.setattr(orchestrator, "_touched_files", lambda r, a, b: [])
 
-    call_count = {"n": 0}
-
     def fake_popen(args, **kw):
+        # Dispatch by --commit-sha so the test is robust to parallel renderer
+        # ordering (the orchestrator runs both renderers concurrently).
+        sha = args[args.index("--commit-sha") + 1]
         proc = MagicMock()
-        proc.communicate.return_value = (head_json if call_count["n"] else base_json, "")
+        proc.communicate.return_value = (
+            base_json if sha == base_sha_full else head_json,
+            "",
+        )
         proc.returncode = 0
-        call_count["n"] += 1
         return proc
 
     monkeypatch.setattr(orchestrator.subprocess, "Popen", fake_popen)
