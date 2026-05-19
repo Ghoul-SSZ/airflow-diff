@@ -102,6 +102,30 @@ def test_dag_still_broken_error_both_sides():
     assert diff.summary.dags_regressed == 0 and diff.summary.dags_fixed == 0
 
 
+def test_touched_classification_matches_absolute_source_file_against_relative_touched():
+    # In real runs, source_file is an absolute path from Airflow's dag.fileloc
+    # (e.g. /tmp/airflow-diff/worktrees/<sha>/dags/d.py), while touched_files
+    # comes from `git diff --name-only` as repo-relative (dags/d.py). The
+    # classifier must do a path-suffix match, not strict membership.
+    a = _ok_dag("d", source="/tmp/airflow-diff/worktrees/abc123/dags/d.py")
+    a.attrs = {"schedule": "0 5 * * *"}
+    b = _ok_dag("d", source="/tmp/airflow-diff/worktrees/def456/dags/d.py")
+    b.attrs = {"schedule": "0 6 * * *"}
+    diff = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=["dags/d.py"])
+    [dd] = diff.dags
+    assert dd.classification == "touched"
+
+
+def test_incidentally_affected_when_dag_path_not_in_touched():
+    a = _ok_dag("d", source="/tmp/airflow-diff/worktrees/abc123/dags/d.py")
+    a.attrs = {"schedule": "0 5 * * *"}
+    b = _ok_dag("d", source="/tmp/airflow-diff/worktrees/def456/dags/d.py")
+    b.attrs = {"schedule": "0 6 * * *"}
+    diff = compute_diff(_bag("x", [a]), _bag("y", [b]), touched_files=["dags/common/helper.py"])
+    [dd] = diff.dags
+    assert dd.classification == "incidentally_affected"
+
+
 def test_attr_diff_schedule_changed():
     a = _ok_dag("d")
     a.attrs = {"schedule": "0 5 * * *", "catchup": False}
