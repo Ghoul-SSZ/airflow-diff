@@ -75,6 +75,8 @@ def test_renderers_run_in_parallel(tmp_path, monkeypatch):
     assert max_concurrent[0] == 2, (
         f"expected both renderers in flight concurrently, peak was {max_concurrent[0]}"
     )
-    assert elapsed < sleep_for * 1.7, (
+    # Bound is wide enough to survive loaded CI runners while still catching
+    # genuinely-serial execution (which would take ~2 * sleep_for = 1.0s).
+    assert elapsed < sleep_for * 1.9, (
         f"renderers appear to run serially: elapsed={elapsed:.2f}s, sleep_for={sleep_for}s"
     )

@@ -11,7 +11,7 @@ import contextlib
 import json
 import os
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 from airflow_diff.config import Config
@@ -148,6 +148,21 @@ def run_diff(repo_root: Path, base_ref: str, head_ref: str, config: Config) -> D
         with ThreadPoolExecutor(max_workers=2, thread_name_prefix="airflow-diff-render") as ex:
             fut_base = ex.submit(_render_side, wt_base, base_sha, fixtures_base)
             fut_head = ex.submit(_render_side, wt_head, head_sha, fixtures_head)
+            # Wait for both before inspecting, so a dual-failure surfaces both
+            # errors instead of swallowing the second one.
+            wait([fut_base, fut_head], return_when=ALL_COMPLETED)
+            errors: list[tuple[str, BaseException]] = []
+            for name, fut in (("base", fut_base), ("head", fut_head)):
+                exc = fut.exception()
+                if exc is not None:
+                    errors.append((name, exc))
+            if len(errors) == 2:
+                base_err, head_err = errors[0][1], errors[1][1]
+                raise OrchestratorError(
+                    f"both renderers failed; base: {base_err}; head: {head_err}"
+                ) from base_err
+            if errors:
+                raise errors[0][1]
             rendered_base = fut_base.result()
             rendered_head = fut_head.result()
 
