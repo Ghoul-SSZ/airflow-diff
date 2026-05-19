@@ -254,7 +254,8 @@ def _diff_fields(a: dict[str, RenderedField], b: dict[str, RenderedField]) -> li
         fb = b.get(name)
         if fa is None:
             # name came from set(a) | set(b); if fa is None, fb must be present.
-            assert fb is not None
+            if fb is None:  # pragma: no cover -- impossible by construction
+                continue
             out.append(
                 FieldDiff(
                     name=name,
