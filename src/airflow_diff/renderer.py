@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    # Safe only because `from __future__ import annotations` is in effect above.
+    # If that import is ever removed, these must move back to runtime imports.
     from airflow_diff.schema import ExternalTaskRef, RenderedDag
 
 # Names that should never appear in the rendered literal-kwargs set, either
