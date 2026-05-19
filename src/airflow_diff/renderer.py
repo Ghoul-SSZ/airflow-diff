@@ -107,7 +107,9 @@ def _build_context(dag, task, synthetic_logical_date: str) -> dict[str, Any]:
     ds = dt.strftime("%Y-%m-%d")
     return {
         "ds": ds,
+        "ds_nodash": ds.replace("-", ""),
         "ts": dt.isoformat(),
+        "ts_nodash": dt.isoformat().replace("-", "").replace(":", ""),
         "logical_date": dt,
         "execution_date": dt,
         "dag": dag,
