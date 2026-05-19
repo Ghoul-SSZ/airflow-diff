@@ -75,7 +75,7 @@ def _install_stubs() -> None:
             return v
         return f"<VAR:{key}>"
 
-    Variable.get = staticmethod(stub_variable_get)
+    Variable.get = staticmethod(stub_variable_get)  # type: ignore[method-assign]
 
     def stub_get_connection(conn_id):
         fix = _FIXTURES["connections"].get(conn_id)
@@ -91,7 +91,7 @@ def _install_stubs() -> None:
             extra="{}",
         )
 
-    BaseHook.get_connection = staticmethod(stub_get_connection)
+    BaseHook.get_connection = staticmethod(stub_get_connection)  # type: ignore[method-assign]
 
     # xcom_pull stub (patched on TaskInstance class)
     from airflow.models.taskinstance import TaskInstance
@@ -100,7 +100,7 @@ def _install_stubs() -> None:
         ids = task_ids if isinstance(task_ids, str) else ",".join(task_ids or [])
         return f"<XCOM:{ids}.{key}>"
 
-    TaskInstance.xcom_pull = stub_xcom_pull
+    TaskInstance.xcom_pull = stub_xcom_pull  # type: ignore[method-assign,assignment]
 
 
 def _airflow_version_ok() -> tuple[bool, str]:
@@ -116,6 +116,8 @@ def _import_dag_file(path: Path) -> dict[str, Any]:
     spec = importlib.util.spec_from_file_location(
         f"airflow_diff_user_dag_{path.stem}_{abs(hash(str(path)))}", path
     )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"could not build import spec for {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.__dict__
@@ -200,7 +202,7 @@ def _extract_literal_kwargs(task, template_fields: frozenset) -> dict[str, Any]:
     params: dict[str, inspect.Parameter] = {}
     for cls in type(task).__mro__:
         try:
-            sig = inspect.signature(cls.__init__)
+            sig = inspect.signature(cls.__init__)  # type: ignore[misc]
         except (ValueError, TypeError):
             continue
         for name, param in sig.parameters.items():
@@ -418,7 +420,7 @@ def _render_dag(dag, synthetic_logical_date: str) -> RenderedDag:
 
 
 def _collect_outlets(dag) -> list:
-    outlets = []
+    outlets: list[Any] = []
     for t in dag.tasks:
         outlets.extend(getattr(t, "outlets", []) or [])
     return outlets

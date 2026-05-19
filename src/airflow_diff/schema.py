@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION: Literal[2] = 2
 
 
 class _Model(BaseModel):
@@ -206,7 +206,7 @@ class SensorMismatch(_Model):
     target_schedule: str | None = None
     expected_delta_seconds: int | None = None
     actual_delta_seconds: int | None = None
-    notes: str | None = Field(None, max_length=500)
+    notes: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
     def _check_reason_field_invariant(self) -> SensorMismatch:

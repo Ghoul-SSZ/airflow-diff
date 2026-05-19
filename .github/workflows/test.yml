@@ -13,9 +13,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: pipx install uv
-      - run: uv pip install --system "ruff>=0.5.0"
+      - run: uv pip install --system "ruff>=0.5.0" "mypy>=1.10" "pydantic>=2.5" "PyYAML>=6.0" "croniter>=2.0" "types-PyYAML"
       - run: ruff check src/ tests/
       - run: ruff format --check src/ tests/
+      - run: mypy
 
   unit:
     runs-on: ubuntu-latest

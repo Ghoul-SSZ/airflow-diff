@@ -7,10 +7,15 @@ Airflow internals — operates purely on the canonical schema.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from airflow_diff.schema import (
     SCHEMA_VERSION,
     AttrDiff,
+    DagClassification,
     DagDiff,
+    DagPairStatus,
+    DagStatus,
     DiffDocument,
     DiffSummary,
     EdgeDiff,
@@ -76,7 +81,7 @@ def compute_diff(
     # Populate render_errors from pair_status transitions
     for dd in dag_diffs:
         if dd.pair_status in ("regressed", "fixed", "still_broken"):
-            side = (
+            side: Literal["base", "head", "both"] = (
                 "both"
                 if dd.pair_status == "still_broken"
                 else ("head" if dd.pair_status == "regressed" else "base")
@@ -119,7 +124,7 @@ def _compare_dag(base: RenderedDag, head: RenderedDag, touched: set[str]) -> Dag
     """Returns None if the two DAGs are byte-equivalent and not worth surfacing."""
     if base == head:
         return None
-    classification = (
+    classification: DagClassification = (
         "touched"
         if (_is_touched(base.source_file, touched) or _is_touched(head.source_file, touched))
         else "incidentally_affected"
@@ -149,7 +154,7 @@ def _compare_dag(base: RenderedDag, head: RenderedDag, touched: set[str]) -> Dag
     )
 
 
-def _pair_status(a: str, b: str) -> str:
+def _pair_status(a: DagStatus, b: DagStatus) -> DagPairStatus:
     if a == "ok" and b == "ok":
         return "ok"
     if a == "ok" and b == "error":
@@ -248,6 +253,8 @@ def _diff_fields(a: dict[str, RenderedField], b: dict[str, RenderedField]) -> li
         fa = a.get(name)
         fb = b.get(name)
         if fa is None:
+            # name came from set(a) | set(b); if fa is None, fb must be present.
+            assert fb is not None
             out.append(
                 FieldDiff(
                     name=name,

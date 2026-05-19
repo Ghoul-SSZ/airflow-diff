@@ -53,12 +53,13 @@ def _normalize_schedule(schedule: Any) -> str | None:
     return None
 
 
-def _mismatch_key(m: SensorMismatch) -> tuple:
+def _mismatch_key(m: SensorMismatch) -> tuple[str, str, str, tuple[str, Any]]:
     """Stable identity tuple for the PR-introduced silencing gate.
 
     Intentionally excludes `reason`: a pair that was already broken at base
     stays silenced even if the head-side rule that fires differs.
     """
+    target: tuple[str, Any]
     if m.target_task_ids is not None:
         target = ("ids", tuple(sorted(m.target_task_ids)))
     else:

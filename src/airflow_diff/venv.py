@@ -10,6 +10,7 @@ import hashlib
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 DEFAULT_VENV_ROOT = Path.home() / ".cache" / "airflow-diff" / "venvs"
 _DEP_FILES = ("requirements.txt", "pyproject.toml", "constraints.txt")
@@ -27,7 +28,7 @@ class _RunResult:
     stderr: str
 
 
-def _run(args: list[str], **kwargs) -> _RunResult:
+def _run(args: list[str], **kwargs: Any) -> _RunResult:
     res = subprocess.run(args, capture_output=True, text=True, **kwargs)
     return _RunResult(res.returncode, res.stdout, res.stderr)
 
@@ -92,12 +93,7 @@ def venv_for(worktree_path: Path, *, root: Path = DEFAULT_VENV_ROOT) -> Path:
         )
     else:
         # No deps to install — venv with stdlib is fine
-        class R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        res = R()
+        res = _RunResult(returncode=0, stdout="", stderr="")
 
     if res.returncode != 0:
         raise VenvError(f"uv pip install failed: {res.stderr.strip()}")

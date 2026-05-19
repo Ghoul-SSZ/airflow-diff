@@ -63,3 +63,30 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["B011"]  # assert False is fine in tests
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/airflow_diff"]
+ignore_missing_imports = false
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["airflow.*", "croniter.*", "yaml", "tomli"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# renderer.py is the only module that imports Airflow at runtime; its
+# dynamic patching of Variable/BaseHook/TaskInstance is hard to type
+# without sacrificing readability. Keep it lenient. We also disable
+# warn_unused_ignores here because the inline ignores covering Airflow
+# method-assignments are only "used" when Airflow types are available
+# (i.e. locally with airflow installed); in the CI lint job mypy treats
+# those classes as Any and the ignores would otherwise be flagged.
+module = "airflow_diff.renderer"
+disallow_untyped_defs = false
+check_untyped_defs = false
+warn_unused_ignores = false
