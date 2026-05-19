@@ -442,6 +442,13 @@ have CI exit `1` on any PR-introduced mismatch.
 
 ## Releasing
 
+> **One-time PyPI setup.** Before the first tag, configure a Trusted Publisher
+> at <https://pypi.org/manage/account/publishing/> with: PyPI project
+> `airflow-diff`, owner = this repo's GitHub owner, repository `airflow-diff`,
+> workflow `release.yml`, environment `pypi`. Then create a GitHub environment
+> named `pypi` under Settings → Environments (reviewers optional). Without
+> both, the `publish` job will fail with a 403 from PyPI.
+
 1. Update `airflow_diff.__version__` and move the `## [Unreleased]` block in `CHANGELOG.md` under a new `## [X.Y.Z]` heading.
 2. Open a PR titled `release: vX.Y.Z`. Merge it.
 3. From `main`, tag and push:

@@ -4,9 +4,14 @@ on:
     tags:
       - "v*"
 
+# Default to no permissions; each job grants only what it needs.
+permissions: {}
+
 jobs:
   verify-version:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.extract.outputs.version }}
     steps:
@@ -29,14 +34,17 @@ jobs:
   build:
     needs: verify-version
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pipx install uv
-      - run: uv pip install --system build
+      - run: uv pip install --system build twine
       - run: python -m build
+      - run: twine check dist/*
       - uses: actions/upload-artifact@v4
         with:
           name: dist
@@ -86,14 +94,25 @@ jobs:
       - name: Open PR to bump action default
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.verify-version.outputs.version }}
         run: |
-          BRANCH="release/bump-action-${{ needs.verify-version.outputs.version }}"
+          BRANCH="release/bump-action-${VERSION}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
           git add action/action.yml
-          git commit -m "chore(action): bump default airflow-diff-version to ${{ needs.verify-version.outputs.version }}"
-          git push -u origin "$BRANCH"
-          gh pr create --title "chore(action): bump default to v${{ needs.verify-version.outputs.version }}" \
-                       --body "Auto-opened by release workflow after publishing v${{ needs.verify-version.outputs.version }} to PyPI." \
-                       --base main --head "$BRANCH"
+          git commit -m "chore(action): bump default airflow-diff-version to ${VERSION}"
+          # Idempotent: a re-triggered release (re-pushed tag, manual re-run) must
+          # not abort if the branch/PR already exists.
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Remote branch ${BRANCH} already exists; skipping push."
+          else
+            git push -u origin "$BRANCH"
+          fi
+          if gh pr view --head "$BRANCH" --json number -q '.number' >/dev/null 2>&1; then
+            echo "PR for ${BRANCH} already open; skipping pr create."
+          else
+            gh pr create --title "chore(action): bump default to v${VERSION}" \
+                         --body "Auto-opened by release workflow after publishing v${VERSION} to PyPI." \
+                         --base main --head "$BRANCH"
+          fi
