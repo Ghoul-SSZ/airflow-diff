@@ -79,12 +79,26 @@ def compute_diff(
     )
 
 
+def _is_touched(source_file: str | None, touched: set[str]) -> bool:
+    # `source_file` is Airflow's dag.fileloc — absolute in real runs
+    # (e.g. /tmp/airflow-diff/worktrees/<sha>/dags/foo.py), repo-relative in
+    # synthetic test fixtures. `touched` comes from `git diff --name-only`
+    # and is always repo-relative. Match by exact membership first, then by
+    # path-suffix so absolute fileloc entries pair up with relative touched
+    # paths.
+    if source_file is None:
+        return False
+    if source_file in touched:
+        return True
+    return any(source_file.endswith("/" + tf) for tf in touched)
+
+
 def _compare_dag(base: RenderedDag, head: RenderedDag, touched: set[str]) -> DagDiff | None:
     """Returns None if the two DAGs are byte-equivalent and not worth surfacing."""
     if base == head:
         return None
     classification = "touched" if (
-        base.source_file in touched or head.source_file in touched
+        _is_touched(base.source_file, touched) or _is_touched(head.source_file, touched)
     ) else "incidentally_affected"
     pair_status = _pair_status(base.status, head.status)
 
