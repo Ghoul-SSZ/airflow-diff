@@ -65,7 +65,9 @@ prepare_case() {
             fi
             echo
             echo "--- airflow-diff output ---"
-            eval "${cmd}" || true
+            # `|| true` is intentional: case-1 produces a regression (exit 1)
+            # and we still want to surface the markdown output.
+            airflow-diff diff "${base_sha}" "${head_sha}" --repo "${work_dir}" --format markdown || true
         fi
     )
 }
