@@ -1,0 +1,13 @@
+diff --git a/dags/orders_pipeline.py b/dags/orders_pipeline.py
+index 119d659..687b717 100644
+--- a/dags/orders_pipeline.py
++++ b/dags/orders_pipeline.py
+@@ -37,7 +37,7 @@ def _check_row_counts(**_):
+ with DAG(
+     dag_id="orders_pipeline",
+     description="Hourly orders ingestion + staging",
+-    schedule="@hourly",
++    schedule="0 */4 * * *",
+     start_date=datetime(2025, 1, 1),
+     catchup=False,
+     max_active_runs=1,

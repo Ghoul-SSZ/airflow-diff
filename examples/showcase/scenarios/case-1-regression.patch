@@ -1,0 +1,34 @@
+diff --git a/dags/common/__init__.py b/dags/common/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/dags/common/buckets.py b/dags/common/buckets.py
+new file mode 100644
+index 0000000..5122f30
+--- /dev/null
++++ b/dags/common/buckets.py
+@@ -0,0 +1,10 @@
++"""Bucket-prefix helpers shared across orders DAGs."""
++from __future__ import annotations
++
++from airflow.models import Variable
++
++
++def warehouse_prefix() -> str:
++    # NOTE: typo — should be "warehouse_bucket". This is the bug the showcase
++    # demonstrates: a "small refactor" silently breaks every staging task.
++    return Variable.get("warehouse_buckte")
+diff --git a/dags/orders_pipeline.py b/dags/orders_pipeline.py
+index 119d659..a6ae6df 100644
+--- a/dags/orders_pipeline.py
++++ b/dags/orders_pipeline.py
+@@ -18,7 +18,9 @@ from airflow.operators.python import PythonOperator
+ from airflow.utils.task_group import TaskGroup
+ 
+ WAREHOUSE = BaseHook.get_connection("warehouse")
+-BUCKET = Variable.get("warehouse_bucket")
++from common.buckets import warehouse_prefix  # noqa: E402
++
++BUCKET = warehouse_prefix()
+ 
+ 
+ def _check_schema(**_):  # noqa: D401

@@ -1,0 +1,3 @@
+dags_folder = "dags"
+fail_on_sensor_mismatch = true
+render_timeout_seconds = 300

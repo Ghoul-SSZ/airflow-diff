@@ -1,0 +1,83 @@
+diff --git a/dags/common/__init__.py b/dags/common/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/dags/common/cmd.py b/dags/common/cmd.py
+new file mode 100644
+index 0000000..c769233
+--- /dev/null
++++ b/dags/common/cmd.py
+@@ -0,0 +1,12 @@
++"""Shared command builders for showcase DAGs."""
++from __future__ import annotations
++
++
++def build_report_cmd(name: str) -> str:
++    """Build a report-generator command with the active tenant prepended.
++
++    The Jinja `{{ var.value.tenant_id }}` is rendered per-DAG-run, so every
++    task that goes through this helper will pick up tenant routing without
++    each DAG having to know about it.
++    """
++    return f"report.sh {name} --tenant {{{{ var.value.tenant_id }}}}"
+diff --git a/dags/finance_rollup.py b/dags/finance_rollup.py
+index 10ae536..19275ae 100644
+--- a/dags/finance_rollup.py
++++ b/dags/finance_rollup.py
+@@ -16,6 +16,7 @@ from airflow.operators.empty import EmptyOperator
+ from airflow.operators.python import PythonOperator
+ from airflow.sensors.external_task import ExternalTaskSensor
+ from airflow.utils.task_group import TaskGroup
++from common.cmd import build_report_cmd
+ 
+ REPORT_BUCKET = Variable.get("report_bucket")
+ 
+@@ -75,15 +76,15 @@ with DAG(
+     with TaskGroup("report") as report:
+         build_exec_dashboard = BashOperator(
+             task_id="build_exec_dashboard",
+-            bash_command="report.sh exec_dashboard --out s3://" + REPORT_BUCKET + "/{{ ds_nodash }}/exec.html",
++            bash_command=build_report_cmd("exec_dashboard") + " --out s3://" + REPORT_BUCKET + "/{{ ds_nodash }}/exec.html",
+         )
+         build_finance_pdf = BashOperator(
+             task_id="build_finance_pdf",
+-            bash_command="report.sh finance_pdf --out s3://" + REPORT_BUCKET + "/{{ ds_nodash }}/finance.pdf",
++            bash_command=build_report_cmd("finance_pdf") + " --out s3://" + REPORT_BUCKET + "/{{ ds_nodash }}/finance.pdf",
+         )
+         build_ops_csv = BashOperator(
+             task_id="build_ops_csv",
+-            bash_command="report.sh ops_csv --out s3://" + REPORT_BUCKET + "/{{ ds_nodash }}/ops.csv",
++            bash_command=build_report_cmd("ops_csv") + " --out s3://" + REPORT_BUCKET + "/{{ ds_nodash }}/ops.csv",
+         )
+         notify_finance = BashOperator(
+             task_id="notify_finance",
+diff --git a/dags/orders_pipeline.py b/dags/orders_pipeline.py
+index 119d659..bb833cf 100644
+--- a/dags/orders_pipeline.py
++++ b/dags/orders_pipeline.py
+@@ -16,6 +16,7 @@ from airflow.operators.bash import BashOperator
+ from airflow.operators.empty import EmptyOperator
+ from airflow.operators.python import PythonOperator
+ from airflow.utils.task_group import TaskGroup
++from common.cmd import build_report_cmd
+ 
+ WAREHOUSE = BaseHook.get_connection("warehouse")
+ BUCKET = Variable.get("warehouse_bucket")
+@@ -72,15 +73,15 @@ with DAG(
+     with TaskGroup("transform") as transform:
+         enrich_orders = BashOperator(
+             task_id="enrich_orders",
+-            bash_command="transform.sh enrich_orders --warehouse " + WAREHOUSE.host + " --date {{ ds }}",
++            bash_command=build_report_cmd("enrich_orders") + " --warehouse " + WAREHOUSE.host + " --date {{ ds }}",
+         )
+         denormalize_customers = BashOperator(
+             task_id="denormalize_customers",
+-            bash_command="transform.sh denormalize_customers --warehouse " + WAREHOUSE.host + " --date {{ ds }}",
++            bash_command=build_report_cmd("denormalize_customers") + " --warehouse " + WAREHOUSE.host + " --date {{ ds }}",
+         )
+         compute_line_items = BashOperator(
+             task_id="compute_line_items",
+-            bash_command="transform.sh compute_line_items --warehouse " + WAREHOUSE.host + " --date {{ ds }}",
++            bash_command=build_report_cmd("compute_line_items") + " --warehouse " + WAREHOUSE.host + " --date {{ ds }}",
+         )
+         flag_anomalies = BashOperator(
+             task_id="flag_anomalies",
