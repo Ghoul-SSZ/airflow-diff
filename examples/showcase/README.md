@@ -29,14 +29,16 @@ Short names (`case-1`, `case-2`, `case-3`) and full names
 
 - **case-1-regression** — a refactor that routes the staging-bucket
   variable through a helper. The helper has a typo. `git diff` shows three
-  innocuous lines; `airflow-diff` shows four `load_staging_*` tasks rendering
-  to the sentinel `<VAR:warehouse_buckte>`.
+  innocuous lines; `airflow-diff` shows every task that interpolates `BUCKET`
+  (8 tasks across the `extract` and `load` groups) rendering to the sentinel
+  `<VAR:warehouse_buckte>`.
 - **case-2-sensor** — `orders_pipeline` reschedules from `@hourly` to
   `0 */4 * * *`. `finance_rollup`'s `ExternalTaskSensor` keeps
   `execution_delta=timedelta(hours=1)`. The cross-DAG validator catches
   `incorrect_execution_delta`.
 - **case-3-ripple** — a shared `build_report_cmd` helper is added and used
-  by both DAGs. `finance_rollup` is classified `incidentally_affected` even
-  though its `git diff` is small.
+  by both DAGs. `airflow-diff` shows the rendered-command changes on every
+  task that goes through the helper, so the reviewer can confirm the
+  tenant flag lands where it should without scanning every call site.
 
 The captured markdown for each case lives in `../../docs/showcase/`.

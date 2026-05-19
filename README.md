@@ -21,7 +21,7 @@ Three short case studies, each built from the same two Airflow DAGs
 The runnable sources live in [`examples/showcase/`](examples/showcase/); run
 any case yourself with `examples/showcase/make_history.sh case-N --run`.
 
-### Case 1 — A refactor that silently broke 4 tasks
+### Case 1 — A refactor that silently broke 8 tasks
 
 > A teammate consolidates the staging-bucket prefix into a helper. The
 > helper has a typo. `git diff` shows three innocuous lines; production is
@@ -192,11 +192,13 @@ This PR introduces 1 `ExternalTaskSensor` configuration that may not align with 
 
 Run locally: `examples/showcase/make_history.sh case-2 --run`.
 
-### Case 3 — A shared helper rippled to a DAG nobody touched
+### Case 3 — A shared helper rewrites commands across two DAGs
 
-> A new `build_report_cmd` helper prepends a templated `--tenant` flag.
-> Only `orders_pipeline.py` is opened in the PR — but `finance_rollup.py`'s
-> rendered commands all change too.
+> A new `build_report_cmd` helper prepends a templated `--tenant` flag
+> to every report command. Both DAGs adopt the helper. The PR diff looks
+> like routine cleanup; `airflow-diff` surfaces the full set of rendered
+> command changes across all affected tasks in one place, so the reviewer
+> can verify the helper expands the way it should.
 
 What the PR diff shows:
 
