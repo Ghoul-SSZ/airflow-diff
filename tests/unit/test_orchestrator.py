@@ -122,6 +122,33 @@ def test_orchestrator_attaches_sensor_mismatches(tmp_path, monkeypatch):
     assert diff.sensor_mismatches[0].reason == "missing_execution_delta"
 
 
+def test_parse_renderer_stdout_strips_leading_log_lines():
+    """_parse_renderer_stdout must tolerate Airflow log lines that appear before
+    the JSON payload on stdout (e.g. the crypto WARNING emitted by Airflow's
+    crypto module before any DAG code runs)."""
+    from datetime import datetime, timezone
+    from airflow_diff.orchestrator import _parse_renderer_stdout
+    from airflow_diff.schema import RenderedDagBag, SCHEMA_VERSION
+
+    valid_json = RenderedDagBag(
+        schema_version=SCHEMA_VERSION,
+        commit_sha="abc" + "0" * 37,
+        airflow_version="2.10.3",
+        rendered_at=datetime(2026, 5, 19, tzinfo=timezone.utc),
+        dags=[],
+    ).model_dump_json()
+
+    warning_prefix = (
+        "[2026-05-19T09:40:11.935+0200] {crypto.py:82} WARNING - "
+        "empty cryptography key - values will not be stored encrypted.\n"
+    )
+    stdout_with_prefix = warning_prefix + valid_json
+
+    result = _parse_renderer_stdout(stdout_with_prefix, sha="abc" + "0" * 37)
+    assert isinstance(result, RenderedDagBag)
+    assert result.airflow_version == "2.10.3"
+
+
 def test_orchestrator_kills_renderer_on_timeout_and_raises(tmp_path, monkeypatch):
     """When the renderer subprocess exceeds render_timeout_seconds, the
     orchestrator must kill it (so it doesn't leak as a zombie) and raise

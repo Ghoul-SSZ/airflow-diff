@@ -35,6 +35,33 @@ def _touched_files(repo_root: Path, base_sha: str, head_sha: str) -> list[str]:
     return [line for line in res.stdout.splitlines() if line.strip()]
 
 
+def _parse_renderer_stdout(stdout: str, sha: str) -> RenderedDagBag:
+    """Parse a RenderedDagBag from renderer stdout, skipping any leading log lines.
+
+    Airflow may emit log output to stdout before the JSON payload — for example:
+        [2026-05-19T09:40:11.935+0200] {crypto.py:82} WARNING - empty cryptography
+        key - values will not be stored encrypted.
+    Log lines may themselves contain '{' (e.g. "{crypto.py:82}"), so we find the
+    first line that starts with '{' rather than naively seeking the first '{' char.
+    If no such line exists we fall back to the full string so the resulting parse
+    error is unchanged from the original behaviour.
+    """
+    payload = stdout
+    for line in stdout.splitlines():
+        if line.startswith("{"):
+            # Locate this line's position and slice from there so any trailing
+            # content on subsequent lines is preserved as part of the payload.
+            payload = stdout[stdout.index(line):]
+            break
+    try:
+        return RenderedDagBag.model_validate_json(payload)
+    except Exception as e:
+        raise OrchestratorError(
+            f"renderer for sha {sha} emitted invalid JSON: {e}\n"
+            f"stdout (first 2000 chars): {stdout[:2000]}"
+        ) from e
+
+
 def _spawn_renderer(python: Path, worktree: Path, sha: str, config: Config,
                     fixtures_yaml: Path | None) -> RenderedDagBag:
     args = [
@@ -81,13 +108,7 @@ def _spawn_renderer(python: Path, worktree: Path, sha: str, config: Config,
             f"renderer subprocess failed (exit {proc.returncode}) for sha {sha}:\n"
             f"stderr (last 2000 chars): {err[-2000:]}"
         )
-    try:
-        return RenderedDagBag.model_validate_json(out)
-    except Exception as e:
-        raise OrchestratorError(
-            f"renderer for sha {sha} emitted invalid JSON: {e}\n"
-            f"stdout (first 2000 chars): {out[:2000]}"
-        ) from e
+    return _parse_renderer_stdout(out, sha=sha)
 
 
 def run_diff(repo_root: Path, base_ref: str, head_ref: str, config: Config) -> DiffDocument:
