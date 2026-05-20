@@ -99,3 +99,24 @@ module = "airflow_diff.renderer"
 disallow_untyped_defs = false
 check_untyped_defs = false
 warn_unused_ignores = false
+
+[tool.coverage.run]
+source = ["airflow_diff"]
+branch = true
+omit = [
+    # Integration-only: only runs inside a per-commit subprocess against real Airflow.
+    "*/airflow_diff/renderer.py",
+    # Convenience wrapper around the renderer subprocess — exercised by integration tests.
+    "*/airflow_diff/__main__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+show_missing = true
+skip_covered = false
+fail_under = 80
