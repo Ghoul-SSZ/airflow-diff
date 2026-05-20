@@ -21,6 +21,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: pipx install uv
+      - name: Install runtime deps into a venv to audit
+        run: |
+          uv venv .venv
+          source .venv/bin/activate
+          # Install only runtime deps (not [dev]) — that's what users actually
+          # install, and what Dependabot tracks against.
+          uv pip install -e .
+      # Scan the venv's installed package set. Passing the venv directory via
+      # `virtual-environment` audits exactly what `pip install -e .` produced.
       - uses: pypa/gh-action-pip-audit@v1.1.0
         with:
-          inputs: pyproject.toml
+          virtual-environment: .venv

@@ -16,7 +16,6 @@ import fnmatch
 import importlib.util
 import inspect
 import json
-import logging
 import sys
 import traceback
 from datetime import datetime, timedelta, timezone
@@ -27,8 +26,6 @@ if TYPE_CHECKING:
     # Safe only because `from __future__ import annotations` is in effect above.
     # If that import is ever removed, these must move back to runtime imports.
     from airflow_diff.schema import ExternalTaskRef, RenderedDag
-
-logger = logging.getLogger(__name__)
 
 # Names that should never appear in the rendered literal-kwargs set, either
 # because they're captured at a higher level (DAG/datasets), are purely
@@ -491,15 +488,15 @@ def _jsonify(value):
 
 
 def main(argv: list[str] | None = None) -> int:
-    # Renderer runs as a subprocess; configure logging on stderr so log lines
-    # don't contaminate the JSON payload on stdout. The orchestrator captures
-    # stderr and surfaces it on subprocess failure.
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
-        stream=sys.stderr,
-    )
-
+    # NOTE: we deliberately do NOT configure any logging here. Airflow's import
+    # path runs `logging.config.dictConfig` with `disable_existing_loggers=True`,
+    # and its `AirflowConsoleHandler` is attached to stdout. Any log record we
+    # emit after Airflow imports — even via a propagate=False child logger —
+    # ends up routed through Airflow's stdout handler with their `[isodate]
+    # {file:line} LEVEL - message` format, corrupting the JSON payload that the
+    # orchestrator reads from stdout. The integration tests parse stdout
+    # directly without the orchestrator's leading-log-line strip, so any
+    # subprocess-side INFO log would break them.
     parser = argparse.ArgumentParser()
     parser.add_argument("--worktree", required=True)
     parser.add_argument("--commit-sha", required=True)
@@ -595,9 +592,9 @@ def main(argv: list[str] | None = None) -> int:
         rendered_at=datetime.now(timezone.utc),
         dags=rendered,
     )
-    n_ok = sum(1 for d in rendered if d.status == "ok")
-    n_err = sum(1 for d in rendered if d.status == "error")
-    logger.info("rendered %d DAGs (%d ok, %d errored)", len(rendered), n_ok, n_err)
+    # Do NOT log here — see the comment in main() about Airflow's logging
+    # config corrupting stdout. The orchestrator infers success/error counts
+    # from the JSON payload it parses.
     print(bag.model_dump_json())
     return 0
 
