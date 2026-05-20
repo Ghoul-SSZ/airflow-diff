@@ -29,10 +29,17 @@ def test_requirements_hash_no_files_uses_marker(tmp_path):
 
 def test_venv_for_creates_when_missing(monkeypatch, tmp_path):
     calls = []
+
     def fake_run(args, **kwargs):
         calls.append(args)
-        class R: returncode = 0; stdout = ""; stderr = ""
+
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
         return R()
+
     monkeypatch.setattr("airflow_diff.venv._run", fake_run)
     (tmp_path / "requirements.txt").write_text("a==1\n")
     cache = tmp_path / "cache"
@@ -42,6 +49,7 @@ def test_venv_for_creates_when_missing(monkeypatch, tmp_path):
         (p / "bin").mkdir(parents=True, exist_ok=True)
         (p / "bin" / "python").write_text("#!/bin/sh\n")
         (p / ".airflow-diff-ready").write_text("ok")
+
     monkeypatch.setattr("airflow_diff.venv._mark_ready_for_test", fake_mark_ready)
 
     py = venv_for(tmp_path, root=cache)
@@ -51,10 +59,17 @@ def test_venv_for_creates_when_missing(monkeypatch, tmp_path):
 
 def test_venv_for_reuses_when_ready(monkeypatch, tmp_path):
     calls = []
+
     def fake_run(args, **kwargs):
         calls.append(args)
-        class R: returncode = 0; stdout = ""; stderr = ""
+
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
         return R()
+
     monkeypatch.setattr("airflow_diff.venv._run", fake_run)
     (tmp_path / "requirements.txt").write_text("a==1\n")
     cache = tmp_path / "cache"
@@ -70,8 +85,13 @@ def test_venv_for_reuses_when_ready(monkeypatch, tmp_path):
 
 def test_uv_failure_raises(monkeypatch, tmp_path):
     def fake_run(args, **kwargs):
-        class R: returncode = 1; stdout = ""; stderr = "pip install failed"
+        class R:
+            returncode = 1
+            stdout = ""
+            stderr = "pip install failed"
+
         return R()
+
     monkeypatch.setattr("airflow_diff.venv._run", fake_run)
     (tmp_path / "requirements.txt").write_text("nonexistent==1\n")
     with pytest.raises(VenvError, match="failed"):

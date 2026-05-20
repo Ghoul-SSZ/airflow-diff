@@ -1,7 +1,9 @@
 """Argparse CLI entry point for airflow-diff."""
+
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -13,8 +15,45 @@ from airflow_diff.venv import VenvError
 from airflow_diff.worktree import WorktreeError
 
 
+def _configure_logging(verbose: int | bool, quiet: bool) -> None:
+    """Configure the `airflow_diff` logger. Higher verbose → more output; quiet wins ties."""
+    if quiet:
+        level = logging.ERROR
+    elif int(verbose) >= 2:
+        level = logging.DEBUG
+    elif int(verbose) >= 1:
+        level = logging.INFO
+    else:
+        level = logging.WARNING
+    logger = logging.getLogger("airflow_diff")
+    logger.setLevel(level)
+    # Set propagate every call: an embedding framework that re-enables it
+    # between invocations would otherwise produce duplicate output.
+    logger.propagate = False
+    # Avoid stacking duplicate StreamHandlers when called repeatedly.
+    # `type(h) is StreamHandler` matches exact type only — FileHandler and
+    # other subclasses don't block us from adding our own.
+    if not any(type(h) is logging.StreamHandler for h in logger.handlers):
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+        logger.addHandler(handler)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="airflow-diff")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Increase verbosity. -v=INFO, -vv=DEBUG.",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress all but error output.",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_diff = sub.add_parser("diff", help="Render and diff DAGs across two commits")
@@ -23,7 +62,9 @@ def main(argv: list[str] | None = None) -> int:
     p_diff.add_argument("--repo", default=".", help="Path to repo (default: cwd)")
     p_diff.add_argument("--format", choices=["markdown", "terminal", "html"], default="markdown")
     p_diff.add_argument("--out", default=None, help="Write output to FILE instead of stdout")
-    p_diff.add_argument("--json-out", default=None, help="Also write the raw DiffDocument JSON to FILE")
+    p_diff.add_argument(
+        "--json-out", default=None, help="Also write the raw DiffDocument JSON to FILE"
+    )
 
     p_report = sub.add_parser("report", help="Re-format an existing diff document")
     p_report.add_argument("diff_json", type=Path)
@@ -39,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
         args = parser.parse_args(argv)
     except SystemExit as e:
         return int(e.code) if e.code is not None else 2
+
+    _configure_logging(args.verbose, args.quiet)
 
     if args.cmd == "diff":
         return _cmd_diff(args)
@@ -80,8 +123,10 @@ def _cmd_render(args) -> int:
     # Convenience wrapper around `python -m airflow_diff.renderer`
     import os
     import subprocess as sp
-    from airflow_diff.worktree import resolve_sha, worktree_for
+
     from airflow_diff.venv import venv_for
+    from airflow_diff.worktree import resolve_sha, worktree_for
+
     repo = Path(args.repo).resolve()
     sha = resolve_sha(repo, args.ref)
     with worktree_for(repo, sha) as wt:
@@ -92,9 +137,20 @@ def _cmd_render(args) -> int:
         _pythonpath = f"{_pkg_src}:{_existing}" if _existing else _pkg_src
         env = {**os.environ, "PYTHONPATH": _pythonpath}
         res = sp.run(
-            [str(py), "-m", "airflow_diff.renderer",
-             "--worktree", str(wt), "--commit-sha", sha, "--config", "{}"],
-            capture_output=True, text=True, check=False,
+            [
+                str(py),
+                "-m",
+                "airflow_diff.renderer",
+                "--worktree",
+                str(wt),
+                "--commit-sha",
+                sha,
+                "--config",
+                "{}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
             env=env,
         )
     if res.returncode != 0:
@@ -112,9 +168,11 @@ def _emit(diff: DiffDocument, fmt: str, out_path: str | None, config=None) -> No
         text = render_markdown(diff, config=config)
     elif fmt == "terminal":
         from airflow_diff.present.terminal import render_terminal
+
         text = render_terminal(diff, config=config)
     else:
         from airflow_diff.present.html import render_html
+
         text = render_html(diff, config=config)
     if out_path:
         Path(out_path).write_text(text)

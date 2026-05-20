@@ -4,11 +4,15 @@ Resolves SHAs, prepares worktrees and venvs, spawns one renderer subprocess per
 commit (in parallel), reads their JSON, runs the diff engine, and returns a
 DiffDocument. The parent process never imports Airflow.
 """
+
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
 import os
 import subprocess
+from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 from airflow_diff.config import Config
@@ -17,8 +21,12 @@ from airflow_diff.schema import DiffDocument, RenderedDagBag
 from airflow_diff.validators.cross_dag import validate as _validate_cross_dag
 from airflow_diff.venv import venv_for
 from airflow_diff.worktree import (
-    ensure_sha_present, resolve_sha, worktree_for,
+    ensure_sha_present,
+    resolve_sha,
+    worktree_for,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OrchestratorError(RuntimeError):
@@ -28,7 +36,9 @@ class OrchestratorError(RuntimeError):
 def _touched_files(repo_root: Path, base_sha: str, head_sha: str) -> list[str]:
     res = subprocess.run(
         ["git", "-C", str(repo_root), "diff", "--name-only", base_sha, head_sha],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if res.returncode != 0:
         raise OrchestratorError(f"git diff failed: {res.stderr.strip()}")
@@ -51,7 +61,7 @@ def _parse_renderer_stdout(stdout: str, sha: str) -> RenderedDagBag:
         if line.startswith("{"):
             # Locate this line's position and slice from there so any trailing
             # content on subsequent lines is preserved as part of the payload.
-            payload = stdout[stdout.index(line):]
+            payload = stdout[stdout.index(line) :]
             break
     try:
         return RenderedDagBag.model_validate_json(payload)
@@ -62,19 +72,27 @@ def _parse_renderer_stdout(stdout: str, sha: str) -> RenderedDagBag:
         ) from e
 
 
-def _spawn_renderer(python: Path, worktree: Path, sha: str, config: Config,
-                    fixtures_yaml: Path | None) -> RenderedDagBag:
+def _spawn_renderer(
+    python: Path, worktree: Path, sha: str, config: Config, fixtures_yaml: Path | None
+) -> RenderedDagBag:
     args = [
-        str(python), "-m", "airflow_diff.renderer",
-        "--worktree", str(worktree),
-        "--commit-sha", sha,
-        "--config", json.dumps({
-            "dags_folder": config.dags_folder,
-            "plugins_folder": config.plugins_folder,
-            "synthetic_logical_date": config.synthetic_logical_date.isoformat(),
-            "excluded_files": config.excluded_files,
-            "excluded_dag_ids": config.excluded_dag_ids,
-        }),
+        str(python),
+        "-m",
+        "airflow_diff.renderer",
+        "--worktree",
+        str(worktree),
+        "--commit-sha",
+        sha,
+        "--config",
+        json.dumps(
+            {
+                "dags_folder": config.dags_folder,
+                "plugins_folder": config.plugins_folder,
+                "synthetic_logical_date": config.synthetic_logical_date.isoformat(),
+                "excluded_files": config.excluded_files,
+                "excluded_dag_ids": config.excluded_dag_ids,
+            }
+        ),
     ]
     if fixtures_yaml is not None:
         args.extend(["--fixtures", str(fixtures_yaml)])
@@ -86,23 +104,23 @@ def _spawn_renderer(python: Path, worktree: Path, sha: str, config: Config,
     _pythonpath = f"{_pkg_src}:{_existing}" if _existing else _pkg_src
     env = {**os.environ, "PYTHONPATH": _pythonpath}
 
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            env=env)
+    logger.info("spawning renderer sha=%s python=%s", sha, python)
+    proc = subprocess.Popen(
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env
+    )
     try:
         out, err = proc.communicate(timeout=config.render_timeout_seconds)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
         # Popen.communicate raising TimeoutExpired leaves the child alive — we
         # must kill it ourselves or it leaks as an orphan/zombie. Per spec §7.
         proc.kill()
-        try:
+        with contextlib.suppress(subprocess.TimeoutExpired):
             proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            # SIGKILL'd but reap deferred; OS will clean up eventually.
-            pass
+        # SIGKILL'd but reap may be deferred; OS will clean up eventually.
         raise OrchestratorError(
             f"renderer subprocess timed out after {config.render_timeout_seconds}s "
             f"for sha {sha}; killed."
-        )
+        ) from e
     if proc.returncode != 0:
         raise OrchestratorError(
             f"renderer subprocess failed (exit {proc.returncode}) for sha {sha}:\n"
@@ -112,32 +130,47 @@ def _spawn_renderer(python: Path, worktree: Path, sha: str, config: Config,
 
 
 def run_diff(repo_root: Path, base_ref: str, head_ref: str, config: Config) -> DiffDocument:
+    logger.info("resolving refs base=%s head=%s", base_ref, head_ref)
     base_sha = resolve_sha(repo_root, base_ref)
     head_sha = resolve_sha(repo_root, head_ref)
     ensure_sha_present(repo_root, base_sha)
     ensure_sha_present(repo_root, head_sha)
 
     touched = _touched_files(repo_root, base_sha, head_sha)
+    logger.info("running diff base=%s head=%s touched=%d", base_sha, head_sha, len(touched))
 
-    with worktree_for(repo_root, base_sha) as wt_base, \
-         worktree_for(repo_root, head_sha) as wt_head:
-
+    with worktree_for(repo_root, base_sha) as wt_base, worktree_for(repo_root, head_sha) as wt_head:
         # Each worktree may carry its own fixtures file (per-commit)
         fixtures_base = wt_base / config.fixtures_path
         fixtures_head = wt_head / config.fixtures_path
 
-        py_base = venv_for(wt_base)
-        py_head = venv_for(wt_head)
+        def _render_side(wt: Path, sha: str, fixtures: Path) -> RenderedDagBag:
+            py = venv_for(wt)
+            return _spawn_renderer(py, wt, sha, config, fixtures if fixtures.exists() else None)
 
-        # Renderers run serially for simplicity in MVP; parallel is a later optimization
-        rendered_base = _spawn_renderer(
-            py_base, wt_base, base_sha, config,
-            fixtures_base if fixtures_base.exists() else None,
-        )
-        rendered_head = _spawn_renderer(
-            py_head, wt_head, head_sha, config,
-            fixtures_head if fixtures_head.exists() else None,
-        )
+        # Renderers run in parallel: each spends most of its time blocked on a
+        # subprocess (`proc.communicate`), so threads suffice — no GIL contention
+        # and no pickling cost from ProcessPoolExecutor.
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="airflow-diff-render") as ex:
+            fut_base = ex.submit(_render_side, wt_base, base_sha, fixtures_base)
+            fut_head = ex.submit(_render_side, wt_head, head_sha, fixtures_head)
+            # Wait for both before inspecting, so a dual-failure surfaces both
+            # errors instead of swallowing the second one.
+            wait([fut_base, fut_head], return_when=ALL_COMPLETED)
+            errors: list[tuple[str, BaseException]] = []
+            for name, fut in (("base", fut_base), ("head", fut_head)):
+                exc = fut.exception()
+                if exc is not None:
+                    errors.append((name, exc))
+            if len(errors) == 2:
+                base_err, head_err = errors[0][1], errors[1][1]
+                raise OrchestratorError(
+                    f"both renderers failed; base: {base_err}; head: {head_err}"
+                ) from base_err
+            if errors:
+                raise errors[0][1]
+            rendered_base = fut_base.result()
+            rendered_head = fut_head.result()
 
     diff = compute_diff(rendered_base, rendered_head, touched_files=touched)
     diff.sensor_mismatches = _validate_cross_dag(rendered_base, rendered_head, config)

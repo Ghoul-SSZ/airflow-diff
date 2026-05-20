@@ -3,14 +3,14 @@
 Both the renderer subprocess and the parent orchestrator validate against these
 types. The schema is versioned; bump SCHEMA_VERSION when changing wire shape.
 """
+
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION: Literal[2] = 2
 
 
 class _Model(BaseModel):
@@ -19,9 +19,10 @@ class _Model(BaseModel):
 
 # ----- Renderer output ----------------------------------------------------
 
+
 class ProvenanceEntry(_Model):
     source: Literal["literal", "stub", "fixture"]
-    key: Optional[str] = None  # e.g. "var.value.bucket"; None for literal
+    key: str | None = None  # e.g. "var.value.bucket"; None for literal
 
 
 class RenderedField(_Model):
@@ -31,21 +32,24 @@ class RenderedField(_Model):
 
 class ExternalTaskRef(_Model):
     """Cross-DAG metadata captured from an ExternalTaskSensor instance."""
+
     kind: Literal["external_task_sensor"]
     external_dag_id: str
-    external_task_id: Optional[str] = None
-    external_task_ids: Optional[list[str]] = None
-    external_task_group_id: Optional[str] = None
-    execution_delta_seconds: Optional[int] = None
+    external_task_id: str | None = None
+    external_task_ids: list[str] | None = None
+    external_task_group_id: str | None = None
+    execution_delta_seconds: int | None = None
     execution_date_fn_present: bool = False
 
     @model_validator(mode="after")
-    def _check_single_target(self) -> "ExternalTaskRef":
-        set_fields = sum([
-            self.external_task_id is not None,
-            self.external_task_ids is not None,
-            self.external_task_group_id is not None,
-        ])
+    def _check_single_target(self) -> ExternalTaskRef:
+        set_fields = sum(
+            [
+                self.external_task_id is not None,
+                self.external_task_ids is not None,
+                self.external_task_group_id is not None,
+            ]
+        )
         if set_fields > 1:
             raise ValueError(
                 "At most one of external_task_id, external_task_ids, "
@@ -66,11 +70,11 @@ class RenderError(_Model):
 class RenderedTask(_Model):
     task_id: str
     operator: str  # fully-qualified class name
-    task_group: Optional[str] = None  # group_id of parent TaskGroup, or None
+    task_group: str | None = None  # group_id of parent TaskGroup, or None
     upstream: list[str] = Field(default_factory=list)
     downstream: list[str] = Field(default_factory=list)
     fields: dict[str, RenderedField] = Field(default_factory=dict)
-    external_ref: Optional[ExternalTaskRef] = None
+    external_ref: ExternalTaskRef | None = None
 
 
 class TaskGroupInfo(_Model):
@@ -88,22 +92,19 @@ class RenderedDag(_Model):
     status: DagStatus
     source_file: str
     # Present only when status == "ok":
-    attrs: Optional[dict[str, Any]] = None
-    datasets: Optional[DatasetRefs] = None
-    task_groups: Optional[list[TaskGroupInfo]] = None
-    tasks: Optional[list[RenderedTask]] = None
+    attrs: dict[str, Any] | None = None
+    datasets: DatasetRefs | None = None
+    task_groups: list[TaskGroupInfo] | None = None
+    tasks: list[RenderedTask] | None = None
     # Present only when status == "error":
-    error: Optional[RenderError] = None
+    error: RenderError | None = None
 
     @model_validator(mode="after")
-    def _check_status_field_invariant(self) -> "RenderedDag":
+    def _check_status_field_invariant(self) -> RenderedDag:
         if self.status == "ok" and self.error is not None:
-            raise ValueError(
-                "RenderedDag with status='ok' must not have an error field set"
-            )
+            raise ValueError("RenderedDag with status='ok' must not have an error field set")
         if self.status == "error" and any(
-            field is not None
-            for field in (self.attrs, self.datasets, self.task_groups, self.tasks)
+            field is not None for field in (self.attrs, self.datasets, self.task_groups, self.tasks)
         ):
             raise ValueError(
                 "RenderedDag with status='error' must not have attrs, datasets, "
@@ -134,8 +135,8 @@ class FieldDiff(_Model):
     after: Any = None
     provenance_before: list[ProvenanceEntry] = Field(default_factory=list)
     provenance_after: list[ProvenanceEntry] = Field(default_factory=list)
-    render_error_before: Optional[RenderError] = None
-    render_error_after: Optional[RenderError] = None
+    render_error_before: RenderError | None = None
+    render_error_after: RenderError | None = None
 
 
 class EdgeDiff(_Model):
@@ -154,8 +155,8 @@ class AttrDiff(_Model):
 class TaskDiff(_Model):
     task_id: str
     change_type: ChangeType
-    operator_before: Optional[str] = None
-    operator_after: Optional[str] = None
+    operator_before: str | None = None
+    operator_after: str | None = None
     field_diffs: list[FieldDiff] = Field(default_factory=list)
     edge_diffs: list[EdgeDiff] = Field(default_factory=list)
 
@@ -163,15 +164,15 @@ class TaskDiff(_Model):
 class DagDiff(_Model):
     dag_id: str
     classification: DagClassification
-    status_a: Optional[DagStatus] = None
-    status_b: Optional[DagStatus] = None
+    status_a: DagStatus | None = None
+    status_b: DagStatus | None = None
     pair_status: DagPairStatus = "ok"
-    source_file_before: Optional[str] = None
-    source_file_after: Optional[str] = None
+    source_file_before: str | None = None
+    source_file_after: str | None = None
     attr_diffs: list[AttrDiff] = Field(default_factory=list)
     task_diffs: list[TaskDiff] = Field(default_factory=list)
-    error_before: Optional[RenderError] = None
-    error_after: Optional[RenderError] = None
+    error_before: RenderError | None = None
+    error_after: RenderError | None = None
 
 
 class DiffSummary(_Model):
@@ -186,35 +187,36 @@ class DiffSummary(_Model):
 class RenderErrorEntry(_Model):
     dag_id: str
     side: Literal["base", "head", "both"]
-    error_base: Optional[RenderError] = None
-    error_head: Optional[RenderError] = None
+    error_base: RenderError | None = None
+    error_head: RenderError | None = None
 
 
 class SensorMismatch(_Model):
     sensor_dag_id: str
     sensor_task_id: str
     target_dag_id: str
-    target_task_id: Optional[str] = None
-    target_task_ids: Optional[list[str]] = None
+    target_task_id: str | None = None
+    target_task_ids: list[str] | None = None
     reason: Literal[
         "missing_execution_delta",
         "incorrect_execution_delta",
         "dangling_target",
     ]
-    sensor_schedule: Optional[str] = None
-    target_schedule: Optional[str] = None
-    expected_delta_seconds: Optional[int] = None
-    actual_delta_seconds: Optional[int] = None
-    notes: Optional[str] = Field(None, max_length=500)
+    sensor_schedule: str | None = None
+    target_schedule: str | None = None
+    expected_delta_seconds: int | None = None
+    actual_delta_seconds: int | None = None
+    notes: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
-    def _check_reason_field_invariant(self) -> "SensorMismatch":
-        if self.reason == "incorrect_execution_delta":
-            if self.expected_delta_seconds is None or self.actual_delta_seconds is None:
-                raise ValueError(
-                    "SensorMismatch with reason='incorrect_execution_delta' must "
-                    "have expected_delta_seconds and actual_delta_seconds set"
-                )
+    def _check_reason_field_invariant(self) -> SensorMismatch:
+        if self.reason == "incorrect_execution_delta" and (
+            self.expected_delta_seconds is None or self.actual_delta_seconds is None
+        ):
+            raise ValueError(
+                "SensorMismatch with reason='incorrect_execution_delta' must "
+                "have expected_delta_seconds and actual_delta_seconds set"
+            )
         return self
 
 

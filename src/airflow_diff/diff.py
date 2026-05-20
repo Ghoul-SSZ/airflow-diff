@@ -4,13 +4,33 @@ Consumes two RenderedDagBag instances and produces a DiffDocument that describes
 all structural, attribute, and field-level differences. Knows nothing about
 Airflow internals — operates purely on the canonical schema.
 """
+
 from __future__ import annotations
 
+import logging
+from typing import Literal
+
 from airflow_diff.schema import (
-    AttrDiff, DagDiff, DiffDocument, DiffSummary, EdgeDiff, FieldDiff,
-    RenderedDag, RenderedDagBag, RenderedField, RenderedTask,
-    RenderError, RenderErrorEntry, SCHEMA_VERSION, TaskDiff,
+    SCHEMA_VERSION,
+    AttrDiff,
+    DagClassification,
+    DagDiff,
+    DagPairStatus,
+    DagStatus,
+    DiffDocument,
+    DiffSummary,
+    EdgeDiff,
+    FieldDiff,
+    RenderedDag,
+    RenderedDagBag,
+    RenderedField,
+    RenderedTask,
+    RenderError,
+    RenderErrorEntry,
+    TaskDiff,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def compute_diff(
@@ -28,26 +48,30 @@ def compute_diff(
     # Added: in head only
     for dag_id in sorted(head_by_id.keys() - base_by_id.keys()):
         h = head_by_id[dag_id]
-        dag_diffs.append(DagDiff(
-            dag_id=dag_id,
-            classification="added",
-            status_a=None,
-            status_b=h.status,
-            source_file_after=h.source_file,
-            error_after=h.error,
-        ))
+        dag_diffs.append(
+            DagDiff(
+                dag_id=dag_id,
+                classification="added",
+                status_a=None,
+                status_b=h.status,
+                source_file_after=h.source_file,
+                error_after=h.error,
+            )
+        )
 
     # Removed: in base only
     for dag_id in sorted(base_by_id.keys() - head_by_id.keys()):
         b = base_by_id[dag_id]
-        dag_diffs.append(DagDiff(
-            dag_id=dag_id,
-            classification="removed",
-            status_a=b.status,
-            status_b=None,
-            source_file_before=b.source_file,
-            error_before=b.error,
-        ))
+        dag_diffs.append(
+            DagDiff(
+                dag_id=dag_id,
+                classification="removed",
+                status_a=b.status,
+                status_b=None,
+                source_file_before=b.source_file,
+                error_before=b.error,
+            )
+        )
 
     # Compare: in both
     for dag_id in sorted(base_by_id.keys() & head_by_id.keys()):
@@ -60,15 +84,28 @@ def compute_diff(
     # Populate render_errors from pair_status transitions
     for dd in dag_diffs:
         if dd.pair_status in ("regressed", "fixed", "still_broken"):
-            side = "both" if dd.pair_status == "still_broken" else (
-                "head" if dd.pair_status == "regressed" else "base"
+            side: Literal["base", "head", "both"] = (
+                "both"
+                if dd.pair_status == "still_broken"
+                else ("head" if dd.pair_status == "regressed" else "base")
             )
-            render_errors.append(RenderErrorEntry(
-                dag_id=dd.dag_id, side=side,
-                error_base=dd.error_before, error_head=dd.error_after,
-            ))
+            render_errors.append(
+                RenderErrorEntry(
+                    dag_id=dd.dag_id,
+                    side=side,
+                    error_base=dd.error_before,
+                    error_head=dd.error_after,
+                )
+            )
 
     summary = _summarize(dag_diffs)
+    logger.info(
+        "diff: %d touched, %d incidental, %d added, %d removed",
+        summary.dags_touched,
+        summary.dags_incidentally_affected,
+        summary.dags_added,
+        summary.dags_removed,
+    )
     return DiffDocument(
         schema_version=SCHEMA_VERSION,
         base_sha=base.commit_sha,
@@ -97,9 +134,11 @@ def _compare_dag(base: RenderedDag, head: RenderedDag, touched: set[str]) -> Dag
     """Returns None if the two DAGs are byte-equivalent and not worth surfacing."""
     if base == head:
         return None
-    classification = "touched" if (
-        _is_touched(base.source_file, touched) or _is_touched(head.source_file, touched)
-    ) else "incidentally_affected"
+    classification: DagClassification = (
+        "touched"
+        if (_is_touched(base.source_file, touched) or _is_touched(head.source_file, touched))
+        else "incidentally_affected"
+    )
     pair_status = _pair_status(base.status, head.status)
 
     attr_diffs: list[AttrDiff] = []
@@ -113,17 +152,19 @@ def _compare_dag(base: RenderedDag, head: RenderedDag, touched: set[str]) -> Dag
     return DagDiff(
         dag_id=base.dag_id,
         classification=classification,
-        status_a=base.status, status_b=head.status,
+        status_a=base.status,
+        status_b=head.status,
         pair_status=pair_status,
         source_file_before=base.source_file,
         source_file_after=head.source_file,
         attr_diffs=attr_diffs,
         task_diffs=task_diffs,
-        error_before=base.error, error_after=head.error,
+        error_before=base.error,
+        error_after=head.error,
     )
 
 
-def _pair_status(a: str, b: str) -> str:
+def _pair_status(a: DagStatus, b: DagStatus) -> DagPairStatus:
     if a == "ok" and b == "ok":
         return "ok"
     if a == "ok" and b == "error":
@@ -165,15 +206,21 @@ def _diff_tasks(base: list[RenderedTask], head: list[RenderedTask]) -> list[Task
     diffs: list[TaskDiff] = []
 
     for tid in sorted(by_id_b.keys() - by_id_a.keys()):
-        diffs.append(TaskDiff(
-            task_id=tid, change_type="added",
-            operator_after=by_id_b[tid].operator,
-        ))
+        diffs.append(
+            TaskDiff(
+                task_id=tid,
+                change_type="added",
+                operator_after=by_id_b[tid].operator,
+            )
+        )
     for tid in sorted(by_id_a.keys() - by_id_b.keys()):
-        diffs.append(TaskDiff(
-            task_id=tid, change_type="removed",
-            operator_before=by_id_a[tid].operator,
-        ))
+        diffs.append(
+            TaskDiff(
+                task_id=tid,
+                change_type="removed",
+                operator_before=by_id_a[tid].operator,
+            )
+        )
     for tid in sorted(by_id_a.keys() & by_id_b.keys()):
         td = _diff_one_task(by_id_a[tid], by_id_b[tid])
         if td is not None:
@@ -201,7 +248,7 @@ def _extract_render_error(rendered) -> RenderError | None:
     """If rendered is a <RENDER_ERROR: ...> marker string, return a minimal RenderError."""
     if isinstance(rendered, str) and rendered.startswith("<RENDER_ERROR:"):
         # Extract the error type from the marker, e.g. "<RENDER_ERROR: ValueError>"
-        inner = rendered[len("<RENDER_ERROR:"):].strip().rstrip(">").strip()
+        inner = rendered[len("<RENDER_ERROR:") :].strip().rstrip(">").strip()
         return RenderError(
             type=inner,
             message=rendered,
@@ -216,25 +263,41 @@ def _diff_fields(a: dict[str, RenderedField], b: dict[str, RenderedField]) -> li
         fa = a.get(name)
         fb = b.get(name)
         if fa is None:
-            out.append(FieldDiff(
-                name=name, change_type="added",
-                after=fb.rendered, provenance_after=fb.provenance,
-                render_error_after=_extract_render_error(fb.rendered),
-            ))
+            # name came from set(a) | set(b); if fa is None, fb must be present.
+            if fb is None:  # pragma: no cover -- impossible by construction
+                continue
+            out.append(
+                FieldDiff(
+                    name=name,
+                    change_type="added",
+                    after=fb.rendered,
+                    provenance_after=fb.provenance,
+                    render_error_after=_extract_render_error(fb.rendered),
+                )
+            )
         elif fb is None:
-            out.append(FieldDiff(
-                name=name, change_type="removed",
-                before=fa.rendered, provenance_before=fa.provenance,
-                render_error_before=_extract_render_error(fa.rendered),
-            ))
+            out.append(
+                FieldDiff(
+                    name=name,
+                    change_type="removed",
+                    before=fa.rendered,
+                    provenance_before=fa.provenance,
+                    render_error_before=_extract_render_error(fa.rendered),
+                )
+            )
         elif fa != fb:
-            out.append(FieldDiff(
-                name=name, change_type="modified",
-                before=fa.rendered, after=fb.rendered,
-                provenance_before=fa.provenance, provenance_after=fb.provenance,
-                render_error_before=_extract_render_error(fa.rendered),
-                render_error_after=_extract_render_error(fb.rendered),
-            ))
+            out.append(
+                FieldDiff(
+                    name=name,
+                    change_type="modified",
+                    before=fa.rendered,
+                    after=fb.rendered,
+                    provenance_before=fa.provenance,
+                    provenance_after=fb.provenance,
+                    render_error_before=_extract_render_error(fa.rendered),
+                    render_error_after=_extract_render_error(fb.rendered),
+                )
+            )
     return out
 
 
@@ -244,13 +307,21 @@ def _diff_edges(a: RenderedTask, b: RenderedTask) -> list[EdgeDiff]:
         before = set(getattr(a, direction))
         after = set(getattr(b, direction))
         for related in sorted(after - before):
-            edges.append(EdgeDiff(
-                direction=direction, change_type="added",
-                task_id=a.task_id, related_task_id=related,
-            ))
+            edges.append(
+                EdgeDiff(
+                    direction=direction,
+                    change_type="added",
+                    task_id=a.task_id,
+                    related_task_id=related,
+                )
+            )
         for related in sorted(before - after):
-            edges.append(EdgeDiff(
-                direction=direction, change_type="removed",
-                task_id=a.task_id, related_task_id=related,
-            ))
+            edges.append(
+                EdgeDiff(
+                    direction=direction,
+                    change_type="removed",
+                    task_id=a.task_id,
+                    related_task_id=related,
+                )
+            )
     return edges

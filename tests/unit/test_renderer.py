@@ -1,4 +1,5 @@
 """Unit tests for renderer helpers (no Airflow install required)."""
+
 from __future__ import annotations
 
 import sys
@@ -18,6 +19,7 @@ def _call_build_context(logical_date: str = "2025-01-15T00:00:00+00:00") -> dict
     macros_stub = _make_airflow_macros_stub()
     with patch.dict(sys.modules, {"airflow": MagicMock(), "airflow.macros": macros_stub}):
         from airflow_diff import renderer
+
         dag_mock = MagicMock()
         dag_mock.params = {}
         task_mock = MagicMock()

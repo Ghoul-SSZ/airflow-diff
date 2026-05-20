@@ -1,6 +1,6 @@
 [project]
 name = "airflow-diff"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Render and diff Apache Airflow DAGs across two git commits"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -18,6 +18,9 @@ dev = [
     "pytest-cov>=4.1",
     "pytest-timeout>=2.2",
     "syrupy>=4.6",
+    "ruff>=0.5.0",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
     # Airflow installed only for renderer integration tests:
     "apache-airflow==2.10.3",
 ]
@@ -29,6 +32,9 @@ airflow-diff = "airflow_diff.cli:main"
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.dynamic]
+version = {attr = "airflow_diff.__version__"}
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
@@ -38,3 +44,79 @@ addopts = "-ra --strict-markers"
 markers = [
     "integration: integration tests that import Airflow",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["tests/fixtures/dags_base", "tests/fixtures/dags_head", "tests/fixtures/dags_paired", "tests/fixtures/dags_sensors", "examples/showcase/dags"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle + pyflakes
+    "I",             # isort
+    "B",             # flake8-bugbear
+    "UP",            # pyupgrade
+    "SIM",           # flake8-simplify
+    "RUF",           # ruff-specific
+]
+ignore = [
+    "E501",  # line length handled by formatter
+    "B008",  # function-call-in-default (argparse uses these idiomatically)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]  # assert False is fine in tests
+
+[tool.ruff.lint.isort]
+# Pin first-party grouping explicitly so pre-commit and CI agree even if the
+# two pick up different ruff versions; without it, isort heuristics can flip
+# `airflow_diff` between first-party and third-party and churn import blocks.
+known-first-party = ["airflow_diff"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/airflow_diff"]
+ignore_missing_imports = false
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["airflow.*", "croniter.*", "yaml", "tomli"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# renderer.py is the only module that imports Airflow at runtime; its
+# dynamic patching of Variable/BaseHook/TaskInstance is hard to type
+# without sacrificing readability. Keep it lenient. We also disable
+# warn_unused_ignores here because the inline ignores covering Airflow
+# method-assignments are only "used" when Airflow types are available
+# (i.e. locally with airflow installed); in the CI lint job mypy treats
+# those classes as Any and the ignores would otherwise be flagged.
+module = "airflow_diff.renderer"
+disallow_untyped_defs = false
+check_untyped_defs = false
+warn_unused_ignores = false
+
+[tool.coverage.run]
+source = ["airflow_diff"]
+branch = true
+omit = [
+    # Integration-only: only runs inside a per-commit subprocess against real Airflow.
+    "*/airflow_diff/renderer.py",
+    # Convenience wrapper around the renderer subprocess — exercised by integration tests.
+    "*/airflow_diff/__main__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+show_missing = true
+skip_covered = false
+fail_under = 80

@@ -3,16 +3,37 @@
 Cache key is a hash of `requirements.txt` + `pyproject.toml` + `constraints.txt`
 (whichever exist). Two commits with identical dep files share a venv.
 """
+
 from __future__ import annotations
 
 import hashlib
+import logging
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_VENV_ROOT = Path.home() / ".cache" / "airflow-diff" / "venvs"
 _DEP_FILES = ("requirements.txt", "pyproject.toml", "constraints.txt")
 _READY_MARKER = ".airflow-diff-ready"
+
+# Per-hash locks so two concurrent venv_for calls with the same cache key (e.g.,
+# the orchestrator's parallel renderers when base and head pin identical deps)
+# don't race to create the same venv directory.
+_VENV_LOCKS_LOCK = threading.Lock()
+_VENV_LOCKS: dict[str, threading.Lock] = {}
+
+
+def _lock_for(key: str) -> threading.Lock:
+    with _VENV_LOCKS_LOCK:
+        lock = _VENV_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _VENV_LOCKS[key] = lock
+        return lock
 
 
 class VenvError(RuntimeError):
@@ -26,12 +47,12 @@ class _RunResult:
     stderr: str
 
 
-def _run(args: list[str], **kwargs) -> _RunResult:
+def _run(args: list[str], **kwargs: Any) -> _RunResult:
     res = subprocess.run(args, capture_output=True, text=True, **kwargs)
     return _RunResult(res.returncode, res.stdout, res.stderr)
 
 
-def _mark_ready_for_test(venv_dir: Path) -> None:  # noqa: D401 — test hook
+def _mark_ready_for_test(venv_dir: Path) -> None:
     """Test hook: mark the venv as ready (real path writes the marker after install)."""
     (venv_dir / _READY_MARKER).write_text("ok")
 
@@ -56,45 +77,72 @@ def venv_for(worktree_path: Path, *, root: Path = DEFAULT_VENV_ROOT) -> Path:
     venv_dir = root / key
     python = venv_dir / "bin" / "python"
     if (venv_dir / _READY_MARKER).exists() and python.exists():
+        logger.debug("venv cache hit hash=%s", key)
         return python
 
-    # Create the venv
-    res = _run(["uv", "venv", str(venv_dir)])
-    if res.returncode != 0:
-        raise VenvError(f"uv venv failed: {res.stderr.strip()}")
+    # Two concurrent calls (e.g., from the orchestrator's parallel renderers
+    # when both worktrees pin identical deps) must not race to create the same
+    # venv directory. Serialize on a per-hash lock; the second arriver hits the
+    # ready marker after the first finishes.
+    with _lock_for(key):
+        if (venv_dir / _READY_MARKER).exists() and python.exists():
+            logger.debug("venv cache hit (after lock) hash=%s", key)
+            return python
 
-    # Install deps (prefer requirements.txt; otherwise install the project itself)
-    req = worktree_path / "requirements.txt"
-    if req.exists():
-        res = _run([
-            "uv", "pip", "install",
-            "--python", str(python),
-            "-r", str(req),
-        ])
-    elif (worktree_path / "pyproject.toml").exists():
-        res = _run([
-            "uv", "pip", "install",
-            "--python", str(python),
-            "-e", str(worktree_path),
-        ])
-    else:
-        # No deps to install — venv with stdlib is fine
-        class R:
-            returncode = 0; stdout = ""; stderr = ""
-        res = R()
+        logger.info("preparing venv hash=%s", key)
+        # Create the venv
+        res = _run(["uv", "venv", str(venv_dir)])
+        if res.returncode != 0:
+            raise VenvError(f"uv venv failed: {res.stderr.strip()}")
 
-    if res.returncode != 0:
-        raise VenvError(f"uv pip install failed: {res.stderr.strip()}")
+        # Install deps (prefer requirements.txt; otherwise install the project itself)
+        req = worktree_path / "requirements.txt"
+        if req.exists():
+            res = _run(
+                [
+                    "uv",
+                    "pip",
+                    "install",
+                    "--python",
+                    str(python),
+                    "-r",
+                    str(req),
+                ]
+            )
+        elif (worktree_path / "pyproject.toml").exists():
+            res = _run(
+                [
+                    "uv",
+                    "pip",
+                    "install",
+                    "--python",
+                    str(python),
+                    "-e",
+                    str(worktree_path),
+                ]
+            )
+        else:
+            # No deps to install — venv with stdlib is fine
+            res = _RunResult(returncode=0, stdout="", stderr="")
 
-    # Always ensure airflow_diff's own runtime deps are present so the renderer
-    # subprocess can import airflow_diff.schema (injected via PYTHONPATH).
-    res2 = _run([
-        "uv", "pip", "install",
-        "--python", str(python),
-        "pydantic>=2.5", "PyYAML>=6.0",
-    ])
-    if res2.returncode != 0:
-        raise VenvError(f"uv pip install (runtime deps) failed: {res2.stderr.strip()}")
+        if res.returncode != 0:
+            raise VenvError(f"uv pip install failed: {res.stderr.strip()}")
 
-    _mark_ready_for_test(venv_dir)  # in real runs this still just touches the marker
-    return python
+        # Always ensure airflow_diff's own runtime deps are present so the renderer
+        # subprocess can import airflow_diff.schema (injected via PYTHONPATH).
+        res2 = _run(
+            [
+                "uv",
+                "pip",
+                "install",
+                "--python",
+                str(python),
+                "pydantic>=2.5",
+                "PyYAML>=6.0",
+            ]
+        )
+        if res2.returncode != 0:
+            raise VenvError(f"uv pip install (runtime deps) failed: {res2.stderr.strip()}")
+
+        _mark_ready_for_test(venv_dir)  # in real runs this still just touches the marker
+        return python

@@ -3,6 +3,7 @@
 `.airflow-diff.toml` lives at the repo root; `fixtures_path` points at a YAML
 file (default `.airflow-diff/fixtures.yaml`). Both are optional.
 """
+
 from __future__ import annotations
 
 import sys

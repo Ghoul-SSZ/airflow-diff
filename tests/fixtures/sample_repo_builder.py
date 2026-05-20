@@ -3,6 +3,7 @@
 The repo contains a `dags/` folder. Commit A has `dags_base/linear.py`;
 commit B replaces it with a modified version (which differs in one bash_command).
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -43,7 +44,9 @@ def build(
         _git(repo_dir, "commit", "-m", "base")
         base_sha = subprocess.run(
             ["git", "-C", str(repo_dir), "rev-parse", "HEAD"],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
 
         src = (fixtures_root / "dags_base" / "linear.py").read_text()
@@ -60,7 +63,9 @@ def build(
         _git(repo_dir, "commit", "-m", "base: upstream only")
         base_sha = subprocess.run(
             ["git", "-C", str(repo_dir), "rev-parse", "HEAD"],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
 
         # Head: add downstream sensor missing execution_delta
@@ -74,6 +79,8 @@ def build(
 
     head_sha = subprocess.run(
         ["git", "-C", str(repo_dir), "rev-parse", "HEAD"],
-        check=True, capture_output=True, text=True,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.strip()
     return base_sha, head_sha
