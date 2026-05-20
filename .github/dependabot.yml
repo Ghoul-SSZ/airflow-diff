@@ -1,0 +1,32 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      dev-deps:
+        patterns:
+          - "ruff"
+          - "mypy"
+          - "pre-commit"
+          - "pytest*"
+          - "syrupy"
+          - "types-*"
+      runtime:
+        patterns:
+          - "pydantic"
+          - "PyYAML"
+          - "croniter"
+          - "tomli"
+    ignore:
+      # Airflow updates are tested against the 2.8/2.9/2.10 matrix in CI;
+      # let CI surface compatibility issues rather than Dependabot churn.
+      - dependency-name: "apache-airflow"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
