@@ -7,10 +7,13 @@ Cache key is a hash of `requirements.txt` + `pyproject.toml` + `constraints.txt`
 from __future__ import annotations
 
 import hashlib
+import logging
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_VENV_ROOT = Path.home() / ".cache" / "airflow-diff" / "venvs"
 _DEP_FILES = ("requirements.txt", "pyproject.toml", "constraints.txt")
@@ -58,8 +61,10 @@ def venv_for(worktree_path: Path, *, root: Path = DEFAULT_VENV_ROOT) -> Path:
     venv_dir = root / key
     python = venv_dir / "bin" / "python"
     if (venv_dir / _READY_MARKER).exists() and python.exists():
+        logger.debug("venv cache hit hash=%s", key)
         return python
 
+    logger.info("preparing venv hash=%s", key)
     # Create the venv
     res = _run(["uv", "venv", str(venv_dir)])
     if res.returncode != 0:

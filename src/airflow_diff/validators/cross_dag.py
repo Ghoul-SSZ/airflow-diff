@@ -10,6 +10,7 @@ Detects PR-introduced ExternalTaskSensor mismatches:
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import Any
 
@@ -23,6 +24,8 @@ from airflow_diff.schema import (
     RenderedTask,
     SensorMismatch,
 )
+
+logger = logging.getLogger(__name__)
 
 _PRESETS = {
     "@yearly": "0 0 1 1 *",
@@ -199,4 +202,6 @@ def validate(
     """Returns mismatches present in head that were NOT present in base."""
     base_keys = {_mismatch_key(m) for m in _mismatches_for_bag(base_bag, config)}
     head = _mismatches_for_bag(head_bag, config)
-    return [m for m in head if _mismatch_key(m) not in base_keys]
+    mismatches = [m for m in head if _mismatch_key(m) not in base_keys]
+    logger.info("cross-DAG sensor validation: %d mismatches", len(mismatches))
+    return mismatches

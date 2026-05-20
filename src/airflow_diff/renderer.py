@@ -16,6 +16,7 @@ import fnmatch
 import importlib.util
 import inspect
 import json
+import logging
 import sys
 import traceback
 from datetime import datetime, timedelta, timezone
@@ -26,6 +27,8 @@ if TYPE_CHECKING:
     # Safe only because `from __future__ import annotations` is in effect above.
     # If that import is ever removed, these must move back to runtime imports.
     from airflow_diff.schema import ExternalTaskRef, RenderedDag
+
+logger = logging.getLogger(__name__)
 
 # Names that should never appear in the rendered literal-kwargs set, either
 # because they're captured at a higher level (DAG/datasets), are purely
@@ -583,6 +586,9 @@ def main(argv: list[str] | None = None) -> int:
         rendered_at=datetime.now(timezone.utc),
         dags=rendered,
     )
+    n_ok = sum(1 for d in rendered if d.status == "ok")
+    n_err = sum(1 for d in rendered if d.status == "error")
+    logger.info("rendered %d DAGs (%d ok, %d errored)", len(rendered), n_ok, n_err)
     print(bag.model_dump_json())
     return 0
 

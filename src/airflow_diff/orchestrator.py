@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import os
 import subprocess
 from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, wait
@@ -24,6 +25,8 @@ from airflow_diff.worktree import (
     resolve_sha,
     worktree_for,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OrchestratorError(RuntimeError):
@@ -101,6 +104,7 @@ def _spawn_renderer(
     _pythonpath = f"{_pkg_src}:{_existing}" if _existing else _pkg_src
     env = {**os.environ, "PYTHONPATH": _pythonpath}
 
+    logger.info("spawning renderer sha=%s python=%s", sha, python)
     proc = subprocess.Popen(
         args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env
     )
@@ -126,12 +130,14 @@ def _spawn_renderer(
 
 
 def run_diff(repo_root: Path, base_ref: str, head_ref: str, config: Config) -> DiffDocument:
+    logger.info("resolving refs base=%s head=%s", base_ref, head_ref)
     base_sha = resolve_sha(repo_root, base_ref)
     head_sha = resolve_sha(repo_root, head_ref)
     ensure_sha_present(repo_root, base_sha)
     ensure_sha_present(repo_root, head_sha)
 
     touched = _touched_files(repo_root, base_sha, head_sha)
+    logger.info("running diff base=%s head=%s touched=%d", base_sha, head_sha, len(touched))
 
     with worktree_for(repo_root, base_sha) as wt_base, worktree_for(repo_root, head_sha) as wt_head:
         # Each worktree may carry its own fixtures file (per-commit)

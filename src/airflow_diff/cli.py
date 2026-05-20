@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -14,8 +15,41 @@ from airflow_diff.venv import VenvError
 from airflow_diff.worktree import WorktreeError
 
 
+def _configure_logging(verbose: int | bool, quiet: bool) -> None:
+    """Configure the `airflow_diff` logger. Higher verbose → more output; quiet wins ties."""
+    if quiet:
+        level = logging.ERROR
+    elif int(verbose) >= 2:
+        level = logging.DEBUG
+    elif int(verbose) >= 1:
+        level = logging.INFO
+    else:
+        level = logging.WARNING
+    logger = logging.getLogger("airflow_diff")
+    logger.setLevel(level)
+    # Avoid duplicate handlers when called repeatedly (tests, multiple CLI invocations).
+    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+        logger.addHandler(handler)
+        logger.propagate = False
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="airflow-diff")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Increase verbosity. -v=INFO, -vv=DEBUG.",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress all but error output.",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_diff = sub.add_parser("diff", help="Render and diff DAGs across two commits")
@@ -42,6 +76,8 @@ def main(argv: list[str] | None = None) -> int:
         args = parser.parse_args(argv)
     except SystemExit as e:
         return int(e.code) if e.code is not None else 2
+
+    _configure_logging(args.verbose, args.quiet)
 
     if args.cmd == "diff":
         return _cmd_diff(args)

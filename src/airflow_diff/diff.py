@@ -7,6 +7,7 @@ Airflow internals — operates purely on the canonical schema.
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from airflow_diff.schema import (
@@ -28,6 +29,8 @@ from airflow_diff.schema import (
     RenderErrorEntry,
     TaskDiff,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def compute_diff(
@@ -96,6 +99,13 @@ def compute_diff(
             )
 
     summary = _summarize(dag_diffs)
+    logger.info(
+        "diff: %d touched, %d incidental, %d added, %d removed",
+        summary.dags_touched,
+        summary.dags_incidentally_affected,
+        summary.dags_added,
+        summary.dags_removed,
+    )
     return DiffDocument(
         schema_version=SCHEMA_VERSION,
         base_sha=base.commit_sha,

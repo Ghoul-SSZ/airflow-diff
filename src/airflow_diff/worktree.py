@@ -6,11 +6,14 @@ against the same SHA share the on-disk checkout.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_WORKTREE_ROOT = Path("/tmp/airflow-diff/worktrees")
 
@@ -57,6 +60,7 @@ def worktree_for(
         res = _run(["git", "-C", str(repo_root), "worktree", "add", "--detach", str(target), sha])
         if res.returncode != 0:
             raise WorktreeError(f"git worktree add failed: {res.stderr.strip()}")
+    logger.debug("worktree path=%s sha=%s", target, sha)
     yield target
     # Note: we intentionally do not clean up on exit. The cache amortizes across
     # subsequent runs against the same SHA. Cleanup is the user's responsibility
