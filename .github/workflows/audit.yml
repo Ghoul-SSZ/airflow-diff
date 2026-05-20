@@ -22,15 +22,19 @@ jobs:
         with:
           python-version: "3.12"
       - run: pipx install uv
-      - name: Install runtime deps into a venv to audit
+      - name: Freeze runtime deps to a requirements file
         run: |
           uv venv .venv
-          source .venv/bin/activate
           # Install only runtime deps (not [dev]) — that's what users actually
           # install, and what Dependabot tracks against.
-          uv pip install -e .
-      # Scan the venv's installed package set. Passing the venv directory via
-      # `virtual-environment` audits exactly what `pip install -e .` produced.
+          uv pip install --python .venv/bin/python -e .
+          uv pip freeze --python .venv/bin/python > /tmp/audit-requirements.txt
+          # Strip the editable self-install line (pip-audit can't resolve "-e ."
+          # against the local checkout).
+          grep -v "^-e " /tmp/audit-requirements.txt > /tmp/audit-requirements.clean.txt
+          mv /tmp/audit-requirements.clean.txt /tmp/audit-requirements.txt
+          echo "--- audit requirements ---"
+          cat /tmp/audit-requirements.txt
       - uses: pypa/gh-action-pip-audit@v1.1.0
         with:
-          virtual-environment: .venv
+          inputs: /tmp/audit-requirements.txt
