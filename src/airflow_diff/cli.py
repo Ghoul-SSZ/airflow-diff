@@ -27,12 +27,16 @@ def _configure_logging(verbose: int | bool, quiet: bool) -> None:
         level = logging.WARNING
     logger = logging.getLogger("airflow_diff")
     logger.setLevel(level)
-    # Avoid duplicate handlers when called repeatedly (tests, multiple CLI invocations).
-    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+    # Set propagate every call: an embedding framework that re-enables it
+    # between invocations would otherwise produce duplicate output.
+    logger.propagate = False
+    # Avoid stacking duplicate StreamHandlers when called repeatedly.
+    # `type(h) is StreamHandler` matches exact type only — FileHandler and
+    # other subclasses don't block us from adding our own.
+    if not any(type(h) is logging.StreamHandler for h in logger.handlers):
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
         logger.addHandler(handler)
-        logger.propagate = False
 
 
 def main(argv: list[str] | None = None) -> int:

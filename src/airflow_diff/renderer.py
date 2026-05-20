@@ -491,6 +491,15 @@ def _jsonify(value):
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Renderer runs as a subprocess; configure logging on stderr so log lines
+    # don't contaminate the JSON payload on stdout. The orchestrator captures
+    # stderr and surfaces it on subprocess failure.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--worktree", required=True)
     parser.add_argument("--commit-sha", required=True)
