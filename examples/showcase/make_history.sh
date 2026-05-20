@@ -34,9 +34,10 @@ prepare_case() {
 
     (
         cd "${work_dir}"
-        git init -q -b main
-        git -c user.email=demo@example.com -c user.name=demo \
-            add .
+        # core.autocrlf=false guards against macOS / Windows developers with
+        # a global autocrlf setting producing different blob SHAs than CI.
+        git -c init.defaultBranch=main -c core.autocrlf=false init -q
+        git add .
         GIT_AUTHOR_DATE="2026-01-01T00:00:00Z" GIT_COMMITTER_DATE="2026-01-01T00:00:00Z" \
             git -c user.email=demo@example.com -c user.name=demo \
             commit -q -m "base"
@@ -45,8 +46,7 @@ prepare_case() {
 
         git apply --check "${patch}"
         git apply "${patch}"
-        git -c user.email=demo@example.com -c user.name=demo \
-            add .
+        git add .
         GIT_AUTHOR_DATE="2026-01-01T00:00:01Z" GIT_COMMITTER_DATE="2026-01-01T00:00:01Z" \
             git -c user.email=demo@example.com -c user.name=demo \
             commit -q -m "head: ${case_name}"

@@ -8,6 +8,7 @@ on:
       - "examples/showcase/**"
       - "docs/showcase/**"
       - "tests/regression/**"
+      - "pyproject.toml"
       - ".github/workflows/showcase.yml"
 
 permissions: {}
