@@ -36,7 +36,9 @@ prepare_case() {
         cd "${work_dir}"
         git init -q -b main
         git -c user.email=demo@example.com -c user.name=demo \
-            add . && git -c user.email=demo@example.com -c user.name=demo \
+            add .
+        GIT_AUTHOR_DATE="2026-01-01T00:00:00Z" GIT_COMMITTER_DATE="2026-01-01T00:00:00Z" \
+            git -c user.email=demo@example.com -c user.name=demo \
             commit -q -m "base"
         local base_sha
         base_sha=$(git rev-parse HEAD)
@@ -44,7 +46,9 @@ prepare_case() {
         git apply --check "${patch}"
         git apply "${patch}"
         git -c user.email=demo@example.com -c user.name=demo \
-            add . && git -c user.email=demo@example.com -c user.name=demo \
+            add .
+        GIT_AUTHOR_DATE="2026-01-01T00:00:01Z" GIT_COMMITTER_DATE="2026-01-01T00:00:01Z" \
+            git -c user.email=demo@example.com -c user.name=demo \
             commit -q -m "head: ${case_name}"
         local head_sha
         head_sha=$(git rev-parse HEAD)
