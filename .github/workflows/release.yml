@@ -75,11 +75,12 @@ jobs:
           ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Update action.yml default to match newly published version
+        id: bump_action
         env:
           VERSION: ${{ needs.verify-version.outputs.version }}
         run: |
           python - <<'PY'
-          import os, re, pathlib
+          import os, pathlib, re, sys
           version = os.environ["VERSION"]
           p = pathlib.Path("action/action.yml")
           s = p.read_text()
@@ -88,10 +89,22 @@ jobs:
               lambda m: f'{m.group(1)}"{version}"',
               s,
           )
-          assert new != s, "action.yml default not updated — regex did not match"
+          if new == s:
+              # Either action.yml is already at this version (re-run after the
+              # bump PR merged) or the regex did not match. Differentiate:
+              if f'default: "{version}"' in s:
+                  print(f"action.yml already at {version}; nothing to bump.")
+                  with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                      f.write("changed=false\n")
+                  sys.exit(0)
+              print("::error::action.yml default regex did not match; investigate.")
+              sys.exit(1)
           p.write_text(new)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("changed=true\n")
           PY
       - name: Open PR to bump action default
+        if: steps.bump_action.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.verify-version.outputs.version }}
